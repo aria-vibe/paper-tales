@@ -1,5 +1,99 @@
 """Tools for extracting text from research papers."""
 
+import os
+import re
+import tempfile
+
+import fitz
+import httpx
+import pdfplumber
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _extract_arxiv_id(url: str) -> str | None:
+    """Extract arXiv paper ID from various URL formats or bare IDs.
+
+    Handles:
+        https://arxiv.org/abs/2301.12345
+        https://arxiv.org/pdf/2301.12345
+        https://arxiv.org/abs/2301.12345v2
+        http://arxiv.org/abs/2301.12345
+        https://arxiv.org/abs/hep-th/9901001  (old-style)
+        2301.12345  (bare ID)
+    """
+    url = url.strip()
+
+    # Full URL patterns
+    m = re.match(
+        r"https?://arxiv\.org/(?:abs|pdf)/([a-z\-]+/\d{7}|\d{4}\.\d{4,5})(v\d+)?",
+        url,
+    )
+    if m:
+        return m.group(1)
+
+    # Bare new-style ID (e.g. 2301.12345)
+    m = re.match(r"^(\d{4}\.\d{4,5})(v\d+)?$", url)
+    if m:
+        return m.group(1)
+
+    # Bare old-style ID (e.g. hep-th/9901001)
+    m = re.match(r"^([a-z\-]+/\d{7})(v\d+)?$", url)
+    if m:
+        return m.group(1)
+
+    return None
+
+
+def _extract_metadata_with_fitz(pdf_path: str) -> dict:
+    """Extract metadata (title, authors) using PyMuPDF."""
+    try:
+        doc = fitz.open(pdf_path)
+        meta = doc.metadata or {}
+        doc.close()
+        return {
+            "title": (meta.get("title") or "").strip(),
+            "authors": [
+                a.strip()
+                for a in (meta.get("author") or "").split(",")
+                if a.strip()
+            ],
+        }
+    except Exception as exc:
+        return {"title": "", "authors": [], "_meta_error": str(exc)}
+
+
+def _extract_text_with_pdfplumber(pdf_path: str) -> tuple[str, int]:
+    """Extract text using pdfplumber (better multi-column handling)."""
+    pages_text: list[str] = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for i, page in enumerate(pdf.pages, start=1):
+            text = page.extract_text() or ""
+            pages_text.append(f"--- Page {i} ---\n{text}")
+        page_count = len(pdf.pages)
+    return "\n\n".join(pages_text), page_count
+
+
+def _extract_abstract_from_text(text: str) -> str:
+    """Best-effort regex extraction of abstract from paper text."""
+    m = re.search(
+        r"(?i)\babstract\b[\s.:—\-]*\n?(.*?)(?=\n\s*\n|\n\s*(?:1[\.\s]|introduction|keywords))",
+        text,
+        re.DOTALL,
+    )
+    if m:
+        return m.group(1).strip()[:2000]
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Public tool functions (called by ADK FunctionTool)
+# ---------------------------------------------------------------------------
+
+MAX_TEXT_CHARS = 100_000
+
 
 def extract_text_from_pdf(pdf_path: str) -> dict:
     """Extract text content from a PDF file.
@@ -9,13 +103,35 @@ def extract_text_from_pdf(pdf_path: str) -> dict:
 
     Returns:
         A dict with 'text' (extracted content), 'pages' (page count),
-        and 'metadata' (title, authors, etc.).
+        and 'metadata' (title, authors, abstract).
     """
-    # TODO: Implement with pdfplumber / PyMuPDF
+    if not os.path.isfile(pdf_path):
+        return {"error": f"File not found: {pdf_path}"}
+
+    try:
+        metadata = _extract_metadata_with_fitz(pdf_path)
+    except Exception as exc:
+        metadata = {"title": "", "authors": [], "_meta_error": str(exc)}
+
+    try:
+        text, page_count = _extract_text_with_pdfplumber(pdf_path)
+    except Exception as exc:
+        return {"error": f"Failed to extract text: {exc}"}
+
+    abstract = _extract_abstract_from_text(text)
+
+    # Truncate for safety
+    if len(text) > MAX_TEXT_CHARS:
+        text = text[:MAX_TEXT_CHARS] + "\n\n[... truncated at 100k characters ...]"
+
     return {
-        "text": "[stub] Extracted paper text will appear here.",
-        "pages": 0,
-        "metadata": {"title": "", "authors": [], "abstract": ""},
+        "text": text,
+        "pages": page_count,
+        "metadata": {
+            "title": metadata.get("title", ""),
+            "authors": metadata.get("authors", []),
+            "abstract": abstract,
+        },
     }
 
 
@@ -23,14 +139,40 @@ def fetch_arxiv_paper(arxiv_url: str) -> dict:
     """Download and extract text from an arXiv paper URL.
 
     Args:
-        arxiv_url: URL of the arXiv paper (e.g. https://arxiv.org/abs/xxxx.xxxxx).
+        arxiv_url: URL of the arXiv paper (e.g. https://arxiv.org/abs/xxxx.xxxxx)
+                   or a bare arXiv ID.
 
     Returns:
-        A dict with 'text', 'pages', and 'metadata'.
+        A dict with 'text', 'pages', and 'metadata' (including 'arxiv_id').
     """
-    # TODO: Implement arXiv PDF download + extraction
-    return {
-        "text": "[stub] ArXiv paper text will appear here.",
-        "pages": 0,
-        "metadata": {"title": "", "authors": [], "abstract": "", "arxiv_id": ""},
-    }
+    arxiv_id = _extract_arxiv_id(arxiv_url)
+    if not arxiv_id:
+        return {"error": f"Could not extract arXiv ID from: {arxiv_url}"}
+
+    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}"
+    tmp_path = None
+
+    try:
+        with httpx.Client(timeout=60, follow_redirects=True) as client:
+            resp = client.get(pdf_url)
+            resp.raise_for_status()
+
+        content_type = resp.headers.get("content-type", "")
+        if "pdf" not in content_type and not resp.content[:5] == b"%PDF-":
+            return {"error": f"Response is not a PDF (content-type: {content_type})"}
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(resp.content)
+            tmp_path = tmp.name
+
+        result = extract_text_from_pdf(tmp_path)
+        result["metadata"]["arxiv_id"] = arxiv_id
+        return result
+
+    except httpx.HTTPStatusError as exc:
+        return {"error": f"HTTP {exc.response.status_code} fetching {pdf_url}"}
+    except httpx.RequestError as exc:
+        return {"error": f"Network error fetching arXiv paper: {exc}"}
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
