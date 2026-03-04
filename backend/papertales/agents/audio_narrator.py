@@ -2,6 +2,7 @@
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
+from google.genai import types
 
 from ..config import MODEL_GEMINI_FLASH, STATE_AUDIO
 from ..tools.audio_tools import get_voice_for_age_group, synthesize_speech
@@ -10,6 +11,11 @@ audio_narrator = LlmAgent(
     name="audio_narrator",
     model=MODEL_GEMINI_FLASH,
     description="Converts story text into audio narration using text-to-speech.",
+    generate_content_config=types.GenerateContentConfig(
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(
+            disable=True,
+        ),
+    ),
     instruction="""You are a professional audio narrator. Your job is to extract the
 text portions of an illustrated story and produce audio narration for each scene
 using text-to-speech.

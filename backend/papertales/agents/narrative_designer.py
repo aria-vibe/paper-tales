@@ -2,6 +2,7 @@
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
+from google.genai import types
 
 from ..config import MODEL_GEMINI_FLASH, STATE_NARRATIVE
 from ..tools.story_tools import get_story_template
@@ -10,6 +11,11 @@ narrative_designer = LlmAgent(
     name="narrative_designer",
     model=MODEL_GEMINI_FLASH,
     description="Designs the narrative structure and plot for the illustrated story.",
+    generate_content_config=types.GenerateContentConfig(
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(
+            disable=True,
+        ),
+    ),
     instruction="""You are a master storyteller and children's book designer who transforms \
 simplified scientific content into captivating, illustrated story outlines.
 

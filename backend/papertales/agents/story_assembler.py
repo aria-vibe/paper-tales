@@ -2,6 +2,7 @@
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
+from google.genai import types
 
 from ..config import MODEL_GEMINI_FLASH, STATE_FINAL
 from ..tools.storage_tools import save_to_firestore, upload_to_gcs
@@ -10,6 +11,11 @@ story_assembler = LlmAgent(
     name="story_assembler",
     model=MODEL_GEMINI_FLASH,
     description="Assembles the final story package from all generated components.",
+    generate_content_config=types.GenerateContentConfig(
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(
+            disable=True,
+        ),
+    ),
     instruction="""You are a story assembler. Your job is to compile all generated components into a polished, structured final story package.
 
 ## INPUT

@@ -2,6 +2,7 @@
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
+from google.genai import types
 
 from ..config import MODEL_GEMINI_FLASH, STATE_SIMPLIFIED
 from ..tools.readability_tools import score_readability
@@ -10,6 +11,11 @@ language_simplifier = LlmAgent(
     name="language_simplifier",
     model=MODEL_GEMINI_FLASH,
     description="Simplifies scientific language for the target age group.",
+    generate_content_config=types.GenerateContentConfig(
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(
+            disable=True,
+        ),
+    ),
     instruction="""You are an expert science communicator who makes complex research \
 accessible to young readers. Your job is to take extracted scientific concepts and \
 rewrite them so a child in the target age group can understand and enjoy them.
