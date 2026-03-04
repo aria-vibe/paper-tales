@@ -47,11 +47,17 @@ frontend/dist/
 htmlcov/
 .ruff_cache/
 
+# Firebase
+.firebase/
+
 # Google Cloud
 *.json
 !package.json
 !package-lock.json
 !tsconfig*.json
+
+# Demo output
+backend/demo_output/
 
 # Media artifacts
 *.wav

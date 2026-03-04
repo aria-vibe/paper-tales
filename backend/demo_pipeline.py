@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
-"""Demo script: runs Agents 5 & 6 with mock input from earlier pipeline stages.
+"""Demo script for the PaperTales pipeline.
 
 Usage:
-    export GOOGLE_API_KEY=your-key-here
-    cd backend && uv run python demo_pipeline.py
+    # Quick demo — Agents 5 & 6 only with mock state (no PDF needed)
+    cd backend && uv run python demo_pipeline.py --quick
 
-Produces: demo_output/ with story text, images, and audio narration summary.
+    # Full pipeline with arXiv URL
+    cd backend && uv run python demo_pipeline.py --arxiv https://arxiv.org/abs/2301.00001
+
+    # Full pipeline with local PDF
+    cd backend && uv run python demo_pipeline.py --pdf path/to/paper.pdf
+
+Options:
+    --age    Target age group (default: 10-13)
+    --style  Story style (default: fairy_tale)
 """
 
+import argparse
 import asyncio
 import base64
 import os
@@ -18,8 +27,10 @@ from google.adk.runners import InMemoryRunner
 from google.adk.agents import SequentialAgent
 from google.genai import types
 
+OUTPUT_DIR = Path("demo_output")
+
 # ---------------------------------------------------------------------------
-# Mock output from Agents 1–4 (realistic example based on a photosynthesis paper)
+# Mock data for --quick mode (Agents 5-6 only)
 # ---------------------------------------------------------------------------
 
 MOCK_NARRATIVE_DESIGN = """\
@@ -73,25 +84,13 @@ MOCK_NARRATIVE_DESIGN = """\
 Setup (wonder) → Discovery (excitement) → Awe (the molecular world) → Understanding (connection to breathing) → Resolution (appreciation)
 """
 
-MOCK_AGE_GROUP = "6-9"
-MOCK_STORY_STYLE = "fairy_tale"
 
 # ---------------------------------------------------------------------------
-# Pipeline runner
+# Quick demo: Agents 5-6 with mock state
 # ---------------------------------------------------------------------------
 
-OUTPUT_DIR = Path("demo_output")
 
-
-async def run_demo():
-    if not os.environ.get("GOOGLE_API_KEY"):
-        print("ERROR: Set GOOGLE_API_KEY first.")
-        print("  export GOOGLE_API_KEY=your-key-here")
-        sys.exit(1)
-
-    OUTPUT_DIR.mkdir(exist_ok=True)
-
-    # -- Create fresh agent instances (ADK agents can only have one parent) --
+async def run_quick_demo(age_group: str, style: str):
     from google.adk.agents import LlmAgent
     from google.adk.tools import FunctionTool
     from papertales.config import (
@@ -136,9 +135,8 @@ async def run_demo():
 
     runner = InMemoryRunner(agent=demo_pipeline, app_name="papertales_demo")
 
-    # Pre-fill state with mock output from Agents 1–4
-    narrative_text = MOCK_NARRATIVE_DESIGN.replace("{age_group}", MOCK_AGE_GROUP).replace(
-        "{story_style}", MOCK_STORY_STYLE
+    narrative_text = MOCK_NARRATIVE_DESIGN.replace("{age_group}", age_group).replace(
+        "{story_style}", style
     )
 
     user_id = "demo_user"
@@ -147,8 +145,8 @@ async def run_demo():
         user_id=user_id,
         state={
             "narrative_design": narrative_text,
-            "age_group": MOCK_AGE_GROUP,
-            "story_style": MOCK_STORY_STYLE,
+            "age_group": age_group,
+            "story_style": style,
         },
     )
 
@@ -156,7 +154,6 @@ async def run_demo():
     print("Running Agent 5 (Story Illustrator) + Agent 6 (Audio Narrator)...")
     print("This may take 1-3 minutes (image generation is slow).\n")
 
-    # Send a trigger message to start the pipeline
     user_msg = types.Content(
         role="user",
         parts=[types.Part(text="Create the illustrated story and audio narration based on the narrative design.")],
@@ -174,14 +171,10 @@ async def run_demo():
             continue
 
         for part in event.content.parts:
-            # Text part
             if part.text:
                 story_text_parts.append(part.text)
-                # Print a snippet
                 snippet = part.text[:200].replace("\n", " ")
                 print(f"  [TEXT] ({event.author}) {snippet}...")
-
-            # Image part
             elif part.inline_data and part.inline_data.mime_type.startswith("image/"):
                 image_count += 1
                 ext = "png" if "png" in part.inline_data.mime_type else "jpg"
@@ -193,14 +186,12 @@ async def run_demo():
                 print(f"  [IMAGE] Saved {img_path} ({len(img_bytes):,} bytes)")
                 story_text_parts.append(f"\n[Illustration {image_count}: {img_path.name}]\n")
 
-    # Save full story text
     full_text = "\n".join(story_text_parts)
     story_path = OUTPUT_DIR / "story.md"
     story_path.write_text(full_text)
     print(f"\nStory saved to {story_path}")
     print(f"Total illustrations: {image_count}")
 
-    # Check session state for audio output
     session = await runner.session_service.get_session(
         app_name="papertales_demo",
         user_id=user_id,
@@ -217,5 +208,104 @@ async def run_demo():
     print(f"\nAll outputs in: {OUTPUT_DIR.resolve()}")
 
 
+# ---------------------------------------------------------------------------
+# Full pipeline: all 8 agents
+# ---------------------------------------------------------------------------
+
+
+async def run_full_pipeline(pdf_source: str, age_group: str, style: str):
+    from papertales.agent import root_agent
+    from papertales.config import STATE_FINAL, STATE_USER_AGE_GROUP, STATE_USER_PDF, STATE_USER_STYLE
+
+    runner = InMemoryRunner(agent=root_agent, app_name="papertales")
+
+    user_id = "demo_user"
+    session = await runner.session_service.create_session(
+        app_name="papertales",
+        user_id=user_id,
+        state={
+            STATE_USER_PDF: pdf_source,
+            STATE_USER_AGE_GROUP: age_group,
+            STATE_USER_STYLE: style,
+        },
+    )
+
+    print(f"Session {session.id} created.")
+    print(f"Source: {pdf_source}")
+    print(f"Age group: {age_group}, Style: {style}")
+    print("Running full 8-agent pipeline (this may take several minutes)...\n")
+
+    trigger = types.Content(
+        role="user",
+        parts=[
+            types.Part(
+                text=f"Transform this research paper into an illustrated story for age group {age_group} in {style} style."
+            )
+        ],
+    )
+
+    async for event in runner.run_async(
+        user_id=user_id,
+        session_id=session.id,
+        new_message=trigger,
+    ):
+        if event.content and event.content.parts:
+            for part in event.content.parts:
+                if part.text:
+                    snippet = part.text[:150].replace("\n", " ")
+                    print(f"  [{event.author}] {snippet}...")
+
+    # Retrieve final story
+    session = await runner.session_service.get_session(
+        app_name="papertales",
+        user_id=user_id,
+        session_id=session.id,
+    )
+    final_story = session.state.get(STATE_FINAL, "")
+
+    if final_story:
+        story_path = OUTPUT_DIR / "final_story.json"
+        story_path.write_text(str(final_story))
+        print(f"\nFinal story saved to {story_path}")
+    else:
+        print("\nWarning: No final_story in session state.")
+
+    print(f"All outputs in: {OUTPUT_DIR.resolve()}")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def main():
+    parser = argparse.ArgumentParser(description="PaperTales demo pipeline")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--quick", action="store_true", help="Quick demo with Agents 5-6 and mock state")
+    group.add_argument("--arxiv", type=str, metavar="URL", help="arXiv URL for full 8-agent pipeline")
+    group.add_argument("--pdf", type=str, metavar="PATH", help="Local PDF path for full 8-agent pipeline")
+    parser.add_argument("--age", type=str, default="10-13", help="Target age group (default: 10-13)")
+    parser.add_argument("--style", type=str, default="fairy_tale", help="Story style (default: fairy_tale)")
+    args = parser.parse_args()
+
+    if not os.environ.get("GOOGLE_API_KEY"):
+        print("ERROR: Set GOOGLE_API_KEY first.")
+        print("  export GOOGLE_API_KEY=your-key-here")
+        sys.exit(1)
+
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    if args.quick:
+        asyncio.run(run_quick_demo(args.age, args.style))
+    elif args.arxiv:
+        asyncio.run(run_full_pipeline(args.arxiv, args.age, args.style))
+    elif args.pdf:
+        pdf_path = str(Path(args.pdf).resolve())
+        if not Path(pdf_path).exists():
+            print(f"ERROR: PDF not found: {pdf_path}")
+            sys.exit(1)
+        asyncio.run(run_full_pipeline(pdf_path, args.age, args.style))
+
+
 if __name__ == "__main__":
-    asyncio.run(run_demo())
+    main()

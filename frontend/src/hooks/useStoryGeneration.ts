@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { GenerationRequest, GenerationStatus, Story } from "../types";
 import { generateStory } from "../services/api";
 
-export function useStoryGeneration() {
+export function useStoryGeneration(getToken: () => Promise<string>) {
   const [status, setStatus] = useState<GenerationStatus>("idle");
   const [story, setStory] = useState<Story | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -12,8 +12,9 @@ export function useStoryGeneration() {
     setError(null);
 
     try {
+      const token = await getToken();
       setStatus("processing");
-      const result = await generateStory(request);
+      const result = await generateStory(request, token);
       setStory(result);
       setStatus("complete");
     } catch (err) {

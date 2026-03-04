@@ -3,6 +3,7 @@ import type { GenerationRequest, Story } from "../types";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:8000",
+  timeout: 300_000,
 });
 
 export async function checkHealth(): Promise<{ status: string }> {
@@ -11,7 +12,8 @@ export async function checkHealth(): Promise<{ status: string }> {
 }
 
 export async function generateStory(
-  request: GenerationRequest
+  request: GenerationRequest,
+  token: string
 ): Promise<Story> {
   const formData = new FormData();
   if (request.file) {
@@ -23,12 +25,15 @@ export async function generateStory(
   formData.append("age_group", request.ageGroup);
   formData.append("style", request.style);
 
-  // TODO: Wire up to actual ADK session endpoint
-  const { data } = await api.post("/generate", formData);
+  const { data } = await api.post("/api/generate", formData, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   return data;
 }
 
-export async function getStory(storyId: string): Promise<Story> {
-  const { data } = await api.get(`/stories/${storyId}`);
+export async function getStory(storyId: string, token: string): Promise<Story> {
+  const { data } = await api.get(`/api/stories/${storyId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   return data;
 }
