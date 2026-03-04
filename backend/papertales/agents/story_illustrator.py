@@ -33,8 +33,13 @@ Age group: {age_group}
 ## YOUR TASK
 
 Write a complete illustrated story, generating BOTH text AND images. For every scene
-you must first write the story text, then generate an illustration depicting that
-scene's key moment.
+you must first write the story text, then generate a SEPARATE, INDIVIDUAL illustration
+depicting that scene's key moment.
+
+CRITICAL RULE: Each scene MUST have its OWN dedicated illustration generated
+independently. Do NOT combine multiple scenes into a single illustration. Do NOT
+skip generating an image for any scene. If the narrative design has 5 scenes, you
+must generate at least 6 images (1 title + 5 scene illustrations).
 
 ## STORY STRUCTURE
 
@@ -45,7 +50,8 @@ Follow this exact structure:
 
 2. **Scene pages** (one per scene from the narrative design): For each scene:
    - Write 2-4 paragraphs of engaging story text
-   - Then generate ONE illustration for that scene
+   - Then generate exactly ONE illustration for that scene (a separate image, not
+     combined with any other scene's illustration)
 
 3. **Ending page**: Write a satisfying conclusion (1-2 paragraphs) that ties back
    to the real science. Include a "What We Learned" sentence connecting the story
@@ -117,6 +123,12 @@ Follow this exact structure:
 
 IMPORTANT: You MUST generate both text AND images. Alternate between writing text
 and generating illustrations — never place two text blocks or two images in a row.
-Every scene must have exactly one illustration following its text.""",
+Every scene must have exactly one illustration following its text.
+
+CRITICAL: Generate a SEPARATE image for EACH scene. Each illustration must be its
+own individual image generation — do NOT create a single combined image containing
+multiple scenes. The total number of generated images should equal the number of
+scenes plus one (for the title illustration). For example, a 5-scene story must
+produce exactly 6 separate images.""",
     output_key=STATE_STORY,
 )
