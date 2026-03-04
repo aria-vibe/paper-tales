@@ -41,6 +41,39 @@ export type GenerationStatus =
   | "complete"
   | "error";
 
+export interface JobResponse {
+  jobId: string;
+  status: "processing" | "complete" | "error" | "timed_out";
+  story?: Story;
+  error?: string;
+  currentStage?: number;
+  totalStages?: number;
+  stageLabel?: string;
+  processingTimeMs?: number;
+}
+
+export interface JobHistoryItem {
+  job_id: string;
+  uid: string;
+  status: string;
+  current_stage: number;
+  total_stages: number;
+  stage_label: string;
+  story_id: string;
+  paper_url: string;
+  age_group: string;
+  style: string;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  processing_time_ms: number | null;
+  error: string | null;
+}
+
+export interface JobHistoryResponse {
+  jobs: JobHistoryItem[];
+}
+
 export interface VoteResponse {
   upvotes: number;
   downvotes: number;

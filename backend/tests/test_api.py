@@ -55,6 +55,14 @@ def app():
     ):
         return await main.generate_story(user_info, paper_url, age_group, style)
 
+    @test_app.get("/api/jobs/{job_id}")
+    async def get_job_status(job_id: str, user_info: UserInfo = Depends(mock_verify_token)):
+        return await main.get_job_status(job_id, user_info)
+
+    @test_app.get("/api/jobs")
+    async def list_user_jobs(user_info: UserInfo = Depends(mock_verify_token), limit: int = 10):
+        return await main.list_user_jobs(user_info, limit)
+
     @test_app.get("/api/stories/{story_id}")
     async def get_story(story_id: str, user_info: UserInfo = Depends(mock_verify_token)):
         return await main.get_story(story_id, user_info)
@@ -76,6 +84,7 @@ def app():
 
     # Reset singletons
     main._firestore_service = None
+    main._job_service = None
     main._top_papers_cache = None
     main._top_papers_cache_time = 0
 
@@ -98,6 +107,27 @@ def mock_fs():
     fs.check_and_increment_quota.return_value = None
     fs.get_remaining_quota.return_value = 10
     return fs
+
+
+@pytest.fixture
+def mock_js():
+    """Create a mock JobService."""
+    js = MagicMock()
+    js.get_job.return_value = None
+    js.get_active_job.return_value = None
+    js.create_job.return_value = {
+        "job_id": "test-id",
+        "status": "processing",
+        "story_id": "test-id",
+        "current_stage": 0,
+        "total_stages": 8,
+        "stage_label": "Initializing",
+    }
+    js.advance_stage.return_value = None
+    js.complete_job.return_value = None
+    js.fail_job.return_value = None
+    js.get_user_jobs.return_value = []
+    return js
 
 
 # ---------------------------------------------------------------------------
@@ -253,37 +283,11 @@ class TestGenerateEndpoint:
         mock_fs.check_and_increment_quota.assert_not_called()
         main._firestore_service = None
 
-    def test_with_arxiv_url_runs_pipeline(self, client, mock_fs):
-        fake_story = json.dumps({
-            "title": "Quantum for Kids",
-            "scenes": [{"text": "Once upon a time..."}],
-            "age_group": "10-13",
-        })
-
-        mock_session = MagicMock()
-        mock_session.id = "test-session-123"
-        mock_session.state = {
-            "final_story": fake_story,
-            "extracted_concepts": "**Field**: Physics",
-            "parsed_paper": "**TITLE**: Quantum\n**AUTHORS**: Alice",
-        }
-
-        mock_session_service = AsyncMock()
-        mock_session_service.create_session = AsyncMock(return_value=mock_session)
-        mock_session_service.get_session = AsyncMock(return_value=mock_session)
-
-        mock_runner = MagicMock()
-        mock_runner.session_service = mock_session_service
-
-        async def fake_run_async(**kwargs):
-            return
-            yield  # Make it an async generator
-
-        mock_runner.run_async = fake_run_async
-
+    def test_returns_job_response_for_new_generation(self, client, mock_fs, mock_js):
+        """New generations return a job response instead of blocking."""
         import main
-        main._runner = mock_runner
         main._firestore_service = mock_fs
+        main._job_service = mock_js
 
         resp = client.post(
             "/api/generate",
@@ -296,15 +300,224 @@ class TestGenerateEndpoint:
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["title"] == "Quantum for Kids"
-        assert "createdAt" in body
-
-        # Verify save and quota were called
-        mock_fs.save_story.assert_called_once()
+        assert "jobId" in body
+        assert body["status"] == "processing"
+        assert "currentStage" in body
+        assert "totalStages" in body
+        assert "stageLabel" in body
+        # Verify quota was checked and job was created
         mock_fs.check_and_increment_quota.assert_called_once_with(MOCK_UID, False)
+        mock_js.create_job.assert_called_once()
 
         main._runner = None
         main._firestore_service = None
+        main._job_service = None
+
+    def test_returns_existing_job_if_same_story_processing(self, client, mock_fs, mock_js):
+        """If same story is already processing, return its status."""
+        import main
+        from papertales.firestore_service import FirestoreService
+
+        story_id = FirestoreService.compute_story_id("2301.00001", "10-13", "fairy_tale")
+        mock_js.get_active_job.return_value = {
+            "job_id": story_id,
+            "story_id": story_id,
+            "status": "processing",
+            "current_stage": 3,
+            "total_stages": 8,
+            "stage_label": "Simplifying language",
+        }
+        main._firestore_service = mock_fs
+        main._job_service = mock_js
+
+        resp = client.post(
+            "/api/generate",
+            data={
+                "paper_url": "https://arxiv.org/abs/2301.00001",
+                "age_group": "10-13",
+                "style": "fairy_tale",
+            },
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "processing"
+        assert body["currentStage"] == 3
+        # Should NOT create a new job
+        mock_js.create_job.assert_not_called()
+
+        main._firestore_service = None
+        main._job_service = None
+
+    def test_returns_409_for_different_story_processing(self, client, mock_fs, mock_js):
+        """If user has an active job for a different story, return 409."""
+        import main
+
+        mock_js.get_active_job.return_value = {
+            "job_id": "different-story-id",
+            "story_id": "different-story-id",
+            "status": "processing",
+            "current_stage": 2,
+            "total_stages": 8,
+            "stage_label": "Extracting concepts",
+        }
+        main._firestore_service = mock_fs
+        main._job_service = mock_js
+
+        resp = client.post(
+            "/api/generate",
+            data={
+                "paper_url": "https://arxiv.org/abs/2301.00001",
+                "age_group": "10-13",
+                "style": "fairy_tale",
+            },
+        )
+
+        assert resp.status_code == 409
+        assert "already have a story" in resp.json()["detail"]
+
+        main._firestore_service = None
+        main._job_service = None
+
+
+# ---------------------------------------------------------------------------
+# Job status endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestJobStatusEndpoint:
+    def test_job_not_found(self, client, mock_js):
+        import main
+        main._job_service = mock_js
+
+        resp = client.get("/api/jobs/nonexistent")
+        assert resp.status_code == 404
+
+        main._job_service = None
+
+    def test_job_processing_with_stage_fields(self, client, mock_js):
+        import main
+
+        mock_js.get_job.return_value = {
+            "status": "processing",
+            "story_id": "job-1",
+            "current_stage": 3,
+            "total_stages": 8,
+            "stage_label": "Simplifying language",
+        }
+        main._job_service = mock_js
+
+        resp = client.get("/api/jobs/job-1")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "processing"
+        assert body["jobId"] == "job-1"
+        assert body["currentStage"] == 3
+        assert body["totalStages"] == 8
+        assert body["stageLabel"] == "Simplifying language"
+
+        main._job_service = None
+
+    def test_job_complete_with_story(self, client, mock_fs, mock_js):
+        import main
+
+        mock_js.get_job.return_value = {
+            "status": "complete",
+            "story_id": "job-2",
+            "current_stage": 8,
+            "total_stages": 8,
+            "stage_label": "Complete",
+            "processing_time_ms": 45000,
+        }
+        mock_fs.get_cached_story.return_value = {
+            "id": "job-2",
+            "title": "Completed Story",
+            "scenes": [{"text": "Done!"}],
+        }
+        main._firestore_service = mock_fs
+        main._job_service = mock_js
+
+        resp = client.get("/api/jobs/job-2")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "complete"
+        assert body["story"]["title"] == "Completed Story"
+        assert body["processingTimeMs"] == 45000
+        assert body["currentStage"] == 8
+
+        main._firestore_service = None
+        main._job_service = None
+
+    def test_job_error(self, client, mock_js):
+        import main
+
+        mock_js.get_job.return_value = {
+            "status": "error",
+            "story_id": "job-3",
+            "error": "Pipeline exploded",
+            "current_stage": 2,
+            "total_stages": 8,
+            "stage_label": "Extracting concepts",
+        }
+        main._job_service = mock_js
+
+        resp = client.get("/api/jobs/job-3")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "error"
+        assert body["error"] == "Pipeline exploded"
+
+        main._job_service = None
+
+    def test_job_timed_out(self, client, mock_js):
+        import main
+
+        mock_js.get_job.return_value = {
+            "status": "timed_out",
+            "story_id": "job-4",
+            "error": "Job timed out after 15 minutes",
+            "current_stage": 5,
+            "total_stages": 8,
+            "stage_label": "Writing & illustrating",
+        }
+        main._job_service = mock_js
+
+        resp = client.get("/api/jobs/job-4")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "timed_out"
+        assert "timed out" in body["error"]
+
+        main._job_service = None
+
+
+class TestListUserJobsEndpoint:
+    def test_returns_user_jobs(self, client, mock_js):
+        import main
+
+        mock_js.get_user_jobs.return_value = [
+            {"job_id": "j1", "status": "complete", "created_at": "2024-01-01T00:00:00+00:00"},
+            {"job_id": "j2", "status": "error", "created_at": "2024-01-02T00:00:00+00:00"},
+        ]
+        main._job_service = mock_js
+
+        resp = client.get("/api/jobs")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["jobs"]) == 2
+        assert body["jobs"][0]["job_id"] == "j1"
+
+        main._job_service = None
+
+    def test_empty_job_list(self, client, mock_js):
+        import main
+        main._job_service = mock_js
+
+        resp = client.get("/api/jobs")
+        assert resp.status_code == 200
+        assert resp.json() == {"jobs": []}
+
+        main._job_service = None
 
 
 class TestGetStoryEndpoint:

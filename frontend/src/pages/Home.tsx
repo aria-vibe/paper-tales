@@ -11,7 +11,7 @@ interface HomeProps {
 }
 
 export function Home({ getToken }: HomeProps) {
-  const { status, story, error, generate, reset } = useStoryGeneration(getToken);
+  const { status, story, error, generate, reset, stageLabel, currentStage, totalStages } = useStoryGeneration(getToken);
 
   if (story) {
     return (
@@ -42,7 +42,7 @@ export function Home({ getToken }: HomeProps) {
             disabled={status === "uploading" || status === "processing"}
             getToken={getToken}
           />
-          <LoadingSpinner status={status} />
+          <LoadingSpinner status={status} stageLabel={stageLabel} currentStage={currentStage} totalStages={totalStages} />
           {error && <p className="error-message">{error}</p>}
         </div>
       </div>
