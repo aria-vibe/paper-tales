@@ -5,6 +5,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 
@@ -31,15 +32,15 @@ def app():
 
     importlib.reload(main)
 
-    from fastapi import Depends, FastAPI, Form, HTTPException
+    from fastapi import Depends, FastAPI, Form
     from pydantic import BaseModel
-    from papertales.auth import RateLimiter, verify_firebase_token
+    from papertales.auth import UserInfo
 
     test_app = FastAPI()
 
-    # Override auth dependency to return a fixed uid
+    # Override auth dependency to return a fixed UserInfo (non-anonymous)
     async def mock_verify_token():
-        return MOCK_UID
+        return UserInfo(uid=MOCK_UID, is_anonymous=False)
 
     @test_app.get("/health")
     async def health():
@@ -47,36 +48,36 @@ def app():
 
     @test_app.post("/api/generate")
     async def generate_story(
-        uid: str = Depends(mock_verify_token),
+        user_info: UserInfo = Depends(mock_verify_token),
         paper_url: str = Form(...),
         age_group: str = Form("10-13"),
         style: str = Form("fairy_tale"),
     ):
-        return await main.generate_story(uid, paper_url, age_group, style)
+        return await main.generate_story(user_info, paper_url, age_group, style)
 
     @test_app.get("/api/stories/{story_id}")
-    async def get_story(story_id: str, uid: str = Depends(mock_verify_token)):
-        return await main.get_story(story_id, uid)
+    async def get_story(story_id: str, user_info: UserInfo = Depends(mock_verify_token)):
+        return await main.get_story(story_id, user_info)
 
     class VoteRequest(BaseModel):
         vote: str
 
     @test_app.post("/api/stories/{story_id}/vote")
-    async def vote_on_story(story_id: str, body: VoteRequest, uid: str = Depends(mock_verify_token)):
-        return await main.vote_on_story(story_id, body, uid)
+    async def vote_on_story(story_id: str, body: VoteRequest, user_info: UserInfo = Depends(mock_verify_token)):
+        return await main.vote_on_story(story_id, body, user_info)
 
     @test_app.get("/api/top-papers")
-    async def get_top_papers(uid: str = Depends(mock_verify_token)):
-        return await main.get_top_papers(uid)
+    async def get_top_papers(user_info: UserInfo = Depends(mock_verify_token)):
+        return await main.get_top_papers(user_info)
+
+    @test_app.get("/api/quota")
+    async def get_quota(user_info: UserInfo = Depends(mock_verify_token)):
+        return await main.get_quota(user_info)
 
     # Reset singletons
     main._firestore_service = None
     main._top_papers_cache = None
     main._top_papers_cache_time = 0
-
-    # Reset rate limiter for each test
-    from papertales import auth
-    auth.rate_limiter = RateLimiter()
 
     return test_app
 
@@ -94,6 +95,8 @@ def mock_fs():
     fs.get_story_by_id.return_value = None
     fs.get_user_vote.return_value = None
     fs.save_story.return_value = {"id": "test-id", "version": 1}
+    fs.check_and_increment_quota.return_value = None
+    fs.get_remaining_quota.return_value = 10
     return fs
 
 
@@ -246,6 +249,8 @@ class TestGenerateEndpoint:
 
         assert resp.status_code == 200
         assert resp.json()["title"] == "Cached Story"
+        # Cached results should NOT call check_and_increment_quota
+        mock_fs.check_and_increment_quota.assert_not_called()
         main._firestore_service = None
 
     def test_with_arxiv_url_runs_pipeline(self, client, mock_fs):
@@ -294,8 +299,9 @@ class TestGenerateEndpoint:
         assert body["title"] == "Quantum for Kids"
         assert "createdAt" in body
 
-        # Verify save was called
+        # Verify save and quota were called
         mock_fs.save_story.assert_called_once()
+        mock_fs.check_and_increment_quota.assert_called_once_with(MOCK_UID, False)
 
         main._runner = None
         main._firestore_service = None
@@ -400,46 +406,75 @@ class TestTopPapersEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# Rate limiter tests
+# Quota endpoint tests
 # ---------------------------------------------------------------------------
 
 
-class TestRateLimiter:
-    def test_allows_under_limit(self):
-        from papertales.auth import RateLimiter
+class TestQuotaEndpoint:
+    def test_returns_quota_for_logged_in_user(self, client, mock_fs):
+        import main
 
-        limiter = RateLimiter(window=3600, max_requests=5)
-        for _ in range(5):
-            limiter.check("user1")  # Should not raise
+        mock_fs.get_remaining_quota.return_value = 7
+        main._firestore_service = mock_fs
 
-    def test_blocks_over_limit(self):
-        from papertales.auth import RateLimiter
-        from fastapi import HTTPException
+        resp = client.get("/api/quota")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["remaining"] == 7
+        assert data["limit"] == 10
+        assert data["isAnonymous"] is False
 
-        limiter = RateLimiter(window=3600, max_requests=5)
-        for _ in range(5):
-            limiter.check("user1")
+        main._firestore_service = None
 
-        with pytest.raises(HTTPException) as exc_info:
-            limiter.check("user1")
-        assert exc_info.value.status_code == 429
 
-    def test_separate_users(self):
-        from papertales.auth import RateLimiter
+class TestQuotaOnGenerate:
+    def test_quota_exhausted_returns_429(self, client, mock_fs):
+        import main
 
-        limiter = RateLimiter(window=3600, max_requests=2)
-        limiter.check("alice")
-        limiter.check("alice")
-        # Alice is at limit, but Bob should be fine
-        limiter.check("bob")
+        mock_fs.check_and_increment_quota.side_effect = HTTPException(
+            status_code=429, detail="Daily limit reached (10 generations/day). Try again tomorrow."
+        )
+        main._firestore_service = mock_fs
 
-    def test_evicts_old_entries(self):
-        from papertales.auth import RateLimiter
+        resp = client.post(
+            "/api/generate",
+            data={
+                "paper_url": "https://arxiv.org/abs/2301.12345",
+                "age_group": "10-13",
+                "style": "fairy_tale",
+            },
+        )
 
-        limiter = RateLimiter(window=1, max_requests=1)  # 1-second window
-        limiter.check("user1")
-        time.sleep(1.1)
-        limiter.check("user1")  # Should succeed — old entry evicted
+        assert resp.status_code == 429
+        assert "Daily limit" in resp.json()["detail"]
+
+        main._firestore_service = None
+
+    def test_cached_story_does_not_decrement_quota(self, client, mock_fs):
+        import main
+
+        cached_story = {
+            "id": "cached-456",
+            "title": "Already Generated",
+            "scenes": [{"text": "cached content"}],
+            "createdAt": "2024-06-01T00:00:00Z",
+        }
+        mock_fs.get_cached_story.return_value = cached_story
+        main._firestore_service = mock_fs
+
+        resp = client.post(
+            "/api/generate",
+            data={
+                "paper_url": "https://arxiv.org/abs/2301.12345",
+                "age_group": "10-13",
+                "style": "fairy_tale",
+            },
+        )
+
+        assert resp.status_code == 200
+        mock_fs.check_and_increment_quota.assert_not_called()
+
+        main._firestore_service = None
 
 
 # ---------------------------------------------------------------------------
@@ -450,7 +485,6 @@ class TestRateLimiter:
 class TestVerifyFirebaseToken:
     @pytest.mark.asyncio
     async def test_missing_header_returns_401(self):
-        from fastapi import HTTPException
         from papertales.auth import verify_firebase_token
 
         with pytest.raises(HTTPException) as exc_info:
@@ -459,7 +493,6 @@ class TestVerifyFirebaseToken:
 
     @pytest.mark.asyncio
     async def test_invalid_format_returns_401(self):
-        from fastapi import HTTPException
         from papertales.auth import verify_firebase_token
 
         with pytest.raises(HTTPException) as exc_info:
@@ -467,17 +500,37 @@ class TestVerifyFirebaseToken:
         assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_valid_token(self):
-        from papertales.auth import verify_firebase_token
+    async def test_valid_token_returns_user_info(self):
+        from papertales.auth import UserInfo, verify_firebase_token
 
+        decoded = {
+            "uid": "user-xyz",
+            "firebase": {"sign_in_provider": "google.com"},
+        }
         with patch("papertales.auth._get_firebase_app"), \
-             patch("firebase_admin.auth.verify_id_token", return_value={"uid": "user-xyz"}):
-            uid = await verify_firebase_token("Bearer valid-token-here")
-            assert uid == "user-xyz"
+             patch("firebase_admin.auth.verify_id_token", return_value=decoded):
+            result = await verify_firebase_token("Bearer valid-token-here")
+            assert isinstance(result, UserInfo)
+            assert result.uid == "user-xyz"
+            assert result.is_anonymous is False
+
+    @pytest.mark.asyncio
+    async def test_anonymous_token_detected(self):
+        from papertales.auth import UserInfo, verify_firebase_token
+
+        decoded = {
+            "uid": "anon-123",
+            "firebase": {"sign_in_provider": "anonymous"},
+        }
+        with patch("papertales.auth._get_firebase_app"), \
+             patch("firebase_admin.auth.verify_id_token", return_value=decoded):
+            result = await verify_firebase_token("Bearer anon-token")
+            assert isinstance(result, UserInfo)
+            assert result.uid == "anon-123"
+            assert result.is_anonymous is True
 
     @pytest.mark.asyncio
     async def test_expired_token_returns_401(self):
-        from fastapi import HTTPException
         from papertales.auth import verify_firebase_token
 
         with patch("papertales.auth._get_firebase_app"), \

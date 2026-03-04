@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { GenerationRequest, Story, TopPapersResponse, VoteResponse } from "../types";
+import type { GenerationRequest, QuotaInfo, Story, TopPapersResponse, VoteResponse } from "../types";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:8000",
@@ -48,6 +48,13 @@ export async function voteOnStory(
 
 export async function getTopPapers(token: string): Promise<TopPapersResponse> {
   const { data } = await api.get("/api/top-papers", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+export async function getQuota(token: string): Promise<QuotaInfo> {
+  const { data } = await api.get("/api/quota", {
     headers: { Authorization: `Bearer ${token}` },
   });
   return data;

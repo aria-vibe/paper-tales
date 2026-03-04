@@ -1,0 +1,48 @@
+export const FIELD_COLORS: Record<string, string> = {
+  Biology: "#22c55e",
+  Chemistry: "#f59e0b",
+  "Computer Science": "#3b82f6",
+  "Earth Science": "#14b8a6",
+  Economics: "#64748b",
+  Engineering: "#ef4444",
+  "Environmental Science": "#10b981",
+  Mathematics: "#a855f7",
+  Medicine: "#f43f5e",
+  Neuroscience: "#ec4899",
+  Physics: "#6366f1",
+  Psychology: "#8b5cf6",
+  "Social Science": "#06b6d4",
+  Other: "#9ca3af",
+};
+
+export const FIELD_ABBR: Record<string, string> = {
+  Biology: "BI",
+  Chemistry: "CH",
+  "Computer Science": "CS",
+  "Earth Science": "ES",
+  Economics: "EC",
+  Engineering: "EN",
+  "Environmental Science": "EV",
+  Mathematics: "MA",
+  Medicine: "ME",
+  Neuroscience: "NE",
+  Physics: "PH",
+  Psychology: "PS",
+  "Social Science": "SO",
+  Other: "OT",
+};
+
+export const FLOAT_POSITIONS: React.CSSProperties[] = [
+  { top: "8%", left: "3%" },
+  { top: "4%", left: "20%" },
+  { top: "5%", right: "17%" },
+  { top: "9%", right: "2%" },
+  { top: "38%", left: "2%" },
+  { top: "42%", right: "1%" },
+  { bottom: "38%", left: "3%" },
+  { bottom: "42%", right: "2%" },
+  { bottom: "9%", left: "3%" },
+  { bottom: "5%", left: "20%" },
+  { bottom: "4%", right: "17%" },
+  { bottom: "8%", right: "2%" },
+];

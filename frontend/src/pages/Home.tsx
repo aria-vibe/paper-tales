@@ -10,36 +10,42 @@ interface HomeProps {
   getToken: () => Promise<string>;
 }
 
-export function Home({ user, getToken }: HomeProps) {
+export function Home({ getToken }: HomeProps) {
   const { status, story, error, generate, reset } = useStoryGeneration(getToken);
+
+  if (story) {
+    return (
+      <main className="home-page">
+        <div className="story-container">
+          <button onClick={reset} className="story-back">
+            {"\u2190"} New story
+          </button>
+          <StoryViewer story={story} getToken={getToken} />
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="home-page">
-      <h1>PaperTales</h1>
-      <p className="tagline">
-        Turn research papers into illustrated stories for young readers
-      </p>
-
-      {!user ? (
-        <p className="sign-in-prompt">Sign in with Google to get started.</p>
-      ) : story ? (
-        <>
-          <button onClick={reset} className="btn-secondary">
-            Create another story
-          </button>
-          <StoryViewer story={story} getToken={getToken} />
-        </>
-      ) : (
-        <>
+      <TopPapers getToken={getToken} />
+      <div className="home-hero">
+        <div className="home-center">
+          <div className="hero-content">
+            <h1 className="hero-title">PaperTales</h1>
+            <p className="hero-tagline">
+              Turn research papers into illustrated stories for young readers
+            </p>
+          </div>
           <PaperUploader
             onSubmit={generate}
             disabled={status === "uploading" || status === "processing"}
+            getToken={getToken}
           />
           <LoadingSpinner status={status} />
           {error && <p className="error-message">{error}</p>}
-          <TopPapers getToken={getToken} />
-        </>
-      )}
+        </div>
+      </div>
     </main>
   );
 }

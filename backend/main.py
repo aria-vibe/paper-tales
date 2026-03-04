@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from google.adk.runners import InMemoryRunner
 from google.genai import types
 from pydantic import BaseModel
 
-from papertales.auth import rate_limiter, verify_firebase_token
+from papertales.auth import UserInfo, verify_firebase_token
 from papertales.config import (
     FIELD_TAXONOMY,
     STATE_CONCEPTS,
@@ -136,12 +137,12 @@ async def health():
 
 @app.post("/api/generate")
 async def generate_story(
-    uid: str = Depends(verify_firebase_token),
+    user_info: UserInfo = Depends(verify_firebase_token),
     paper_url: str = Form(...),
     age_group: str = Form("10-13"),
     style: str = Form("fairy_tale"),
 ):
-    rate_limiter.check(uid)
+    uid = user_info.uid
 
     # Validate URL against whitelist
     try:
@@ -158,11 +159,14 @@ async def generate_story(
     fs = _get_firestore_service()
     cached = fs.get_cached_story(story_id)
     if cached:
-        # Include user's vote if they have one
+        # Cached content does NOT count against quota
         user_vote = fs.get_user_vote(story_id, uid)
         if user_vote:
             cached["userVote"] = user_vote
         return cached
+
+    # Check daily quota AFTER cache check — only actual generations count
+    fs.check_and_increment_quota(uid, user_info.is_anonymous)
 
     # Run the pipeline
     runner = _get_runner()
@@ -227,14 +231,14 @@ async def generate_story(
 
 
 @app.get("/api/stories/{story_id}")
-async def get_story(story_id: str, uid: str = Depends(verify_firebase_token)):
+async def get_story(story_id: str, user_info: UserInfo = Depends(verify_firebase_token)):
     fs = _get_firestore_service()
     story = fs.get_story_by_id(story_id)
     if not story:
         raise HTTPException(status_code=404, detail="Story not found.")
 
     # Include user's vote
-    user_vote = fs.get_user_vote(story_id, uid)
+    user_vote = fs.get_user_vote(story_id, user_info.uid)
     if user_vote:
         story["userVote"] = user_vote
 
@@ -249,7 +253,7 @@ class VoteRequest(BaseModel):
 async def vote_on_story(
     story_id: str,
     body: VoteRequest,
-    uid: str = Depends(verify_firebase_token),
+    user_info: UserInfo = Depends(verify_firebase_token),
 ):
     if body.vote not in ("up", "down"):
         raise HTTPException(status_code=400, detail="Vote must be 'up' or 'down'.")
@@ -261,8 +265,25 @@ async def vote_on_story(
     if not doc:
         raise HTTPException(status_code=404, detail="Story not found.")
 
-    result = fs.vote_on_story(story_id, uid, body.vote)
+    result = fs.vote_on_story(story_id, user_info.uid, body.vote)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Quota endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/quota")
+async def get_quota(user_info: UserInfo = Depends(verify_firebase_token)):
+    fs = _get_firestore_service()
+    remaining = fs.get_remaining_quota(user_info.uid, user_info.is_anonymous)
+    limit = 3 if user_info.is_anonymous else 10
+    return {
+        "remaining": remaining,
+        "limit": limit,
+        "isAnonymous": user_info.is_anonymous,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -273,11 +294,9 @@ _top_papers_cache: dict | None = None
 _top_papers_cache_time: float = 0
 TOP_PAPERS_TTL = 300  # 5 minutes
 
-import time
-
 
 @app.get("/api/top-papers")
-async def get_top_papers(uid: str = Depends(verify_firebase_token)):
+async def get_top_papers(user_info: UserInfo = Depends(verify_firebase_token)):
     global _top_papers_cache, _top_papers_cache_time
 
     now = time.time()

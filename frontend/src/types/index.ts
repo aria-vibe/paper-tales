@@ -48,6 +48,12 @@ export interface VoteResponse {
   flaggedForRegen: boolean;
 }
 
+export interface QuotaInfo {
+  remaining: number;
+  limit: number;
+  isAnonymous: boolean;
+}
+
 export interface TopPapersResponse {
   [field: string]: {
     id: string;

@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   onAuthStateChanged,
   signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInAnonymously,
   signOut as fbSignOut,
   type User,
 } from "firebase/auth";
@@ -19,18 +22,45 @@ export function useAuth() {
     return unsubscribe;
   }, []);
 
-  async function signIn() {
+  const signInWithGoogle = useCallback(async () => {
     await signInWithPopup(auth, googleProvider);
-  }
+  }, []);
 
-  async function signOut() {
+  const signInWithEmail = useCallback(
+    async (email: string, password: string) => {
+      await signInWithEmailAndPassword(auth, email, password);
+    },
+    []
+  );
+
+  const signUpWithEmail = useCallback(
+    async (email: string, password: string) => {
+      await createUserWithEmailAndPassword(auth, email, password);
+    },
+    []
+  );
+
+  const signInAsGuest = useCallback(async () => {
+    await signInAnonymously(auth);
+  }, []);
+
+  const signOut = useCallback(async () => {
     await fbSignOut(auth);
-  }
+  }, []);
 
-  async function getToken(): Promise<string> {
+  const getToken = useCallback(async (): Promise<string> => {
     if (!user) throw new Error("Not signed in");
     return user.getIdToken();
-  }
+  }, [user]);
 
-  return { user, loading, signIn, signOut, getToken };
+  return {
+    user,
+    loading,
+    signInWithGoogle,
+    signInWithEmail,
+    signUpWithEmail,
+    signInAsGuest,
+    signOut,
+    getToken,
+  };
 }

@@ -6,15 +6,20 @@ import logging
 
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
 from google.cloud import firestore, storage
 
 logger = logging.getLogger(__name__)
 
 STORIES_COLLECTION = "stories"
+DAILY_USAGE_COLLECTION = "daily_usage"
 GCS_BUCKET = "papertales-media"
 MAX_VERSIONS = 5
 REGEN_VOTE_THRESHOLD = 10
 REGEN_DOWNVOTE_RATIO = 0.5
+
+QUOTA_ANONYMOUS = 3
+QUOTA_LOGGED_IN = 10
 
 
 class FirestoreService:
@@ -251,6 +256,50 @@ class FirestoreService:
                 result[field] = papers
 
         return result
+
+    # ------------------------------------------------------------------
+    # Daily quota
+    # ------------------------------------------------------------------
+
+    def _daily_usage_doc_id(self, uid: str) -> str:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        return f"{uid}_{today}"
+
+    def check_and_increment_quota(self, uid: str, is_anonymous: bool) -> None:
+        """Increment daily usage count. Raises HTTPException(429) if over limit."""
+        limit = QUOTA_ANONYMOUS if is_anonymous else QUOTA_LOGGED_IN
+        doc_id = self._daily_usage_doc_id(uid)
+        doc_ref = self._db.collection(DAILY_USAGE_COLLECTION).document(doc_id)
+
+        @firestore.transactional
+        def _txn(transaction, doc_ref):
+            doc = doc_ref.get(transaction=transaction)
+            current = doc.to_dict().get("count", 0) if doc.exists else 0
+
+            if current >= limit:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Daily limit reached ({limit} generations/day). Try again tomorrow.",
+                )
+
+            transaction.set(doc_ref, {
+                "count": current + 1,
+                "uid": uid,
+                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            }, merge=True)
+
+        transaction = self._db.transaction()
+        _txn(transaction, doc_ref)
+
+    def get_remaining_quota(self, uid: str, is_anonymous: bool) -> int:
+        """Return how many generations the user has left today."""
+        limit = QUOTA_ANONYMOUS if is_anonymous else QUOTA_LOGGED_IN
+        doc_id = self._daily_usage_doc_id(uid)
+        doc_ref = self._db.collection(DAILY_USAGE_COLLECTION).document(doc_id)
+        doc = doc_ref.get()
+
+        current = doc.to_dict().get("count", 0) if doc.exists else 0
+        return max(0, limit - current)
 
     # ------------------------------------------------------------------
     # GCS helpers

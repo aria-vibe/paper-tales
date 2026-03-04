@@ -17,8 +17,8 @@ export function LoadingSpinner({ status }: LoadingSpinnerProps) {
 
   return (
     <div className="loading-spinner">
-      {status === "error" ? null : <div className="spinner" />}
-      <p>{STATUS_MESSAGES[status]}</p>
+      {status !== "error" && <div className="spinner" />}
+      <p className="loading-text">{STATUS_MESSAGES[status]}</p>
     </div>
   );
 }

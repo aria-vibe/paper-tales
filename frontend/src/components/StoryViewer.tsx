@@ -12,9 +12,9 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
       <header>
         <h1>{story.title}</h1>
         <p className="story-meta">
-          {story.style.replace("_", " ")} | Ages {story.ageGroup}
-          {story.paperTitle && <> | Source: {story.paperTitle}</>}
-          {story.version && <> | v{story.version}</>}
+          {story.style.replace("_", " ")} · Ages {story.ageGroup}
+          {story.paperTitle && <> · {story.paperTitle}</>}
+          {story.version && <> · v{story.version}</>}
         </p>
         {getToken && (
           <VoteButtons
@@ -29,7 +29,11 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
 
       <div className="story-scenes">
         {story.scenes.map((scene, i) => (
-          <section key={i} className="story-scene">
+          <section
+            key={i}
+            className="story-scene"
+            style={{ animationDelay: `${i * 0.1}s` }}
+          >
             {scene.imageBase64 && (
               <img
                 src={`data:image/png;base64,${scene.imageBase64}`}

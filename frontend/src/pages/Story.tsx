@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { StoryViewer } from "../components/StoryViewer";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { getStory } from "../services/api";
@@ -24,11 +24,30 @@ export function Story({ getToken }: StoryProps) {
       );
   }, [id, getToken]);
 
-  if (error) return <p className="error-message">{error}</p>;
-  if (!story) return <LoadingSpinner status="processing" />;
+  if (error) {
+    return (
+      <main className="story-page">
+        <p className="error-message">{error}</p>
+        <Link to="/" className="story-back" style={{ marginTop: 16, display: "inline-flex" }}>
+          {"\u2190"} Home
+        </Link>
+      </main>
+    );
+  }
+
+  if (!story) {
+    return (
+      <main className="story-page">
+        <LoadingSpinner status="processing" />
+      </main>
+    );
+  }
 
   return (
     <main className="story-page">
+      <Link to="/" className="story-back">
+        {"\u2190"} Home
+      </Link>
       <StoryViewer story={story} getToken={getToken} />
     </main>
   );

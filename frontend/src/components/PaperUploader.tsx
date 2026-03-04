@@ -1,9 +1,11 @@
-import { useState } from "react";
-import type { AgeGroup, GenerationRequest, StoryStyle } from "../types";
+import { useState, useEffect } from "react";
+import type { AgeGroup, GenerationRequest, QuotaInfo, StoryStyle } from "../types";
+import { getQuota } from "../services/api";
 
 interface PaperUploaderProps {
   onSubmit: (request: GenerationRequest) => void;
   disabled?: boolean;
+  getToken: () => Promise<string>;
 }
 
 const AGE_GROUPS: { value: AgeGroup; label: string }[] = [
@@ -19,89 +21,91 @@ const STORY_STYLES: { value: StoryStyle; label: string }[] = [
   { value: "comic_book", label: "Comic Book" },
 ];
 
-const SUPPORTED_ARCHIVES = [
-  "arxiv.org",
-  "biorxiv.org",
-  "medrxiv.org",
-  "chemrxiv.org",
-  "ssrn.com",
-  "eartharxiv.org",
-  "psyarxiv.com",
-  "osf.io",
-];
-
-export function PaperUploader({ onSubmit, disabled }: PaperUploaderProps) {
+export function PaperUploader({ onSubmit, disabled, getToken }: PaperUploaderProps) {
   const [paperUrl, setPaperUrl] = useState("");
   const [ageGroup, setAgeGroup] = useState<AgeGroup>("10-13");
   const [style, setStyle] = useState<StoryStyle>("adventure");
+  const [quota, setQuota] = useState<QuotaInfo | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getToken()
+      .then((token) => getQuota(token))
+      .then((q) => {
+        if (!cancelled) setQuota(q);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [getToken, disabled]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!paperUrl) return;
-
-    onSubmit({
-      paperUrl,
-      ageGroup,
-      style,
-    });
+    onSubmit({ paperUrl, ageGroup, style });
   }
+
+  const quotaExhausted = quota !== null && quota.remaining <= 0;
 
   return (
     <form onSubmit={handleSubmit} className="paper-uploader">
-      <h2>Enter a Research Paper URL</h2>
+      <input
+        className="uploader-url"
+        type="url"
+        placeholder="Paste a research paper URL..."
+        value={paperUrl}
+        onChange={(e) => setPaperUrl(e.target.value)}
+        disabled={disabled}
+      />
+      <p className="uploader-hint">
+        Supports arXiv, bioRxiv, medRxiv, ChemRxiv, SSRN, EarthArXiv,
+        PsyArXiv, OSF
+      </p>
 
-      <div className="form-group">
-        <label htmlFor="paper-url">Paper URL</label>
-        <input
-          id="paper-url"
-          type="url"
-          placeholder="https://arxiv.org/abs/2301.12345"
-          value={paperUrl}
-          onChange={(e) => setPaperUrl(e.target.value)}
+      <div className="uploader-options">
+        <select
+          value={ageGroup}
+          onChange={(e) => setAgeGroup(e.target.value as AgeGroup)}
           disabled={disabled}
-        />
-        <p className="form-hint">
-          Supported: {SUPPORTED_ARCHIVES.join(", ")}
-        </p>
+          aria-label="Age group"
+        >
+          {AGE_GROUPS.map((ag) => (
+            <option key={ag.value} value={ag.value}>
+              {ag.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={style}
+          onChange={(e) => setStyle(e.target.value as StoryStyle)}
+          disabled={disabled}
+          aria-label="Story style"
+        >
+          {STORY_STYLES.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </select>
       </div>
 
-      <div className="form-row">
-        <div className="form-group">
-          <label htmlFor="age-group">Age Group</label>
-          <select
-            id="age-group"
-            value={ageGroup}
-            onChange={(e) => setAgeGroup(e.target.value as AgeGroup)}
-            disabled={disabled}
-          >
-            {AGE_GROUPS.map((ag) => (
-              <option key={ag.value} value={ag.value}>
-                {ag.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="story-style">Story Style</label>
-          <select
-            id="story-style"
-            value={style}
-            onChange={(e) => setStyle(e.target.value as StoryStyle)}
-            disabled={disabled}
-          >
-            {STORY_STYLES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <button type="submit" disabled={disabled || !paperUrl}>
+      <button
+        type="submit"
+        className="uploader-submit"
+        disabled={disabled || !paperUrl || quotaExhausted}
+      >
         Generate Story
       </button>
+
+      {quota !== null && (
+        <p className="uploader-quota">
+          {quotaExhausted
+            ? "Daily limit reached. Try again tomorrow."
+            : `${quota.remaining}/${quota.limit} generations remaining today`}
+          {quota.isAnonymous && !quotaExhausted && (
+            <span className="quota-hint"> — sign in for more</span>
+          )}
+        </p>
+      )}
     </form>
   );
 }

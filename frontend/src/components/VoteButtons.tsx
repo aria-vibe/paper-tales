@@ -18,7 +18,9 @@ export function VoteButtons({
 }: VoteButtonsProps) {
   const [upvotes, setUpvotes] = useState(initialUpvotes);
   const [downvotes, setDownvotes] = useState(initialDownvotes);
-  const [userVote, setUserVote] = useState<"up" | "down" | undefined>(initialUserVote);
+  const [userVote, setUserVote] = useState<"up" | "down" | undefined>(
+    initialUserVote
+  );
   const [loading, setLoading] = useState(false);
 
   async function handleVote(vote: "up" | "down") {
@@ -31,7 +33,7 @@ export function VoteButtons({
       setDownvotes(result.downvotes);
       setUserVote(result.userVote);
     } catch {
-      // Silently fail — votes are non-critical
+      // Silently fail
     } finally {
       setLoading(false);
     }
@@ -45,7 +47,7 @@ export function VoteButtons({
         disabled={loading}
         aria-label="Upvote"
       >
-        &#9650; {upvotes}
+        {"\u25B2"} {upvotes}
       </button>
       <button
         className={`vote-btn vote-down ${userVote === "down" ? "active" : ""}`}
@@ -53,7 +55,7 @@ export function VoteButtons({
         disabled={loading}
         aria-label="Downvote"
       >
-        &#9660; {downvotes}
+        {"\u25BC"} {downvotes}
       </button>
     </div>
   );
