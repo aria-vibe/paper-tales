@@ -57,8 +57,9 @@ htmlcov/
 !tsconfig*.json
 !firestore.indexes.json
 
-# Demo output
+# Demo / test output
 backend/demo_output/
+backend/test_output/
 
 # Media artifacts
 *.wav
