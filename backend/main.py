@@ -1,6 +1,7 @@
 """FastAPI entry point for PaperTales."""
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -8,6 +9,11 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Configure structured logging before any other imports
+from papertales.log_context import current_job_id, current_session_id, setup_structured_logging
+
+setup_structured_logging()
 
 from fastapi import Depends, FastAPI, Form, HTTPException
 from google.adk.cli.fast_api import get_fast_api_app
@@ -147,6 +153,7 @@ async def health():
     return {"status": "ok"}
 
 
+
 async def _run_pipeline_task(
     job_id: str,
     uid: str,
@@ -171,6 +178,15 @@ async def _run_pipeline_task(
             },
         )
 
+        # Set correlation context for all downstream loggers
+        current_session_id.set(session.id)
+        current_job_id.set(job_id)
+
+        logger.info(
+            "Pipeline started: url=%s age=%s style=%s uid=%s",
+            normalized_url, age_group, style, uid,
+        )
+
         trigger = types.Content(
             role="user",
             parts=[
@@ -180,13 +196,76 @@ async def _run_pipeline_task(
             ],
         )
 
+        # Track per-agent output stats and Gemini response timing
+        current_agent = None
+        agent_text_chars = 0
+        agent_image_count = 0
+        agent_start_time = 0.0
+        agent_first_token_time: float | None = None
+        pipeline_start = time.monotonic()
+
+        # Collect media from event stream for GCS persistence
+        collected_images: list[str] = []  # base64 strings in scene order
+        collected_audio: list[str] = []   # base64 strings in scene order
+
         async for event in runner.run_async(
             user_id=uid,
             session_id=session.id,
             new_message=trigger,
         ):
-            if hasattr(event, "actions") and event.actions and event.actions.end_of_agent and event.author:
-                js.advance_stage(job_id, event.author)
+            # Detect agent transitions
+            author = getattr(event, "author", None)
+            if author and author != current_agent:
+                if current_agent is not None:
+                    elapsed_ms = int((time.monotonic() - agent_start_time) * 1000)
+                    ttft_ms = int((agent_first_token_time - agent_start_time) * 1000) if agent_first_token_time else None
+                    logger.info(
+                        "Agent %s completed: %d text chars, %d images, gemini_ms=%d, ttft_ms=%s",
+                        current_agent, agent_text_chars, agent_image_count, elapsed_ms, ttft_ms,
+                    )
+                current_agent = author
+                agent_text_chars = 0
+                agent_image_count = 0
+                agent_start_time = time.monotonic()
+                agent_first_token_time = None
+                logger.info("Agent %s started", current_agent)
+                js.advance_stage(job_id, current_agent)
+
+            # Accumulate output stats and capture media from event content
+            content = getattr(event, "content", None)
+            if content and hasattr(content, "parts") and content.parts:
+                for part in content.parts:
+                    if hasattr(part, "text") and part.text:
+                        agent_text_chars += len(part.text)
+                    if hasattr(part, "inline_data") and part.inline_data:
+                        agent_image_count += 1
+                        # Capture image bytes for GCS storage
+                        img_data = part.inline_data.data
+                        if img_data:
+                            if isinstance(img_data, bytes):
+                                collected_images.append(base64.b64encode(img_data).decode("utf-8"))
+                            elif isinstance(img_data, str):
+                                collected_images.append(img_data)
+                    # Capture audio from TTS tool responses
+                    fr = getattr(part, "function_response", None)
+                    if fr and getattr(fr, "name", "") == "synthesize_speech":
+                        resp = fr.response if isinstance(getattr(fr, "response", None), dict) else {}
+                        if resp.get("audio_base64"):
+                            collected_audio.append(resp["audio_base64"])
+                # Record time-to-first-token
+                if agent_first_token_time is None:
+                    agent_first_token_time = time.monotonic()
+
+        # Log final agent stats
+        if current_agent is not None:
+            elapsed_ms = int((time.monotonic() - agent_start_time) * 1000)
+            ttft_ms = int((agent_first_token_time - agent_start_time) * 1000) if agent_first_token_time else None
+            logger.info(
+                "Agent %s completed: %d text chars, %d images, gemini_ms=%d, ttft_ms=%s",
+                current_agent, agent_text_chars, agent_image_count, elapsed_ms, ttft_ms,
+            )
+
+        pipeline_elapsed_ms = int((time.monotonic() - pipeline_start) * 1000)
 
         # Retrieve final story from session state
         session = await runner.session_service.get_session(
@@ -196,11 +275,31 @@ async def _run_pipeline_task(
         )
         raw_story = session.state.get(STATE_FINAL, "")
 
+        # Log pipeline summary
+        parsed_paper = session.state.get(STATE_PAPER_TEXT, "")
+        logger.info("Pipeline complete: parsed_paper=%d chars, final_story=%d chars, total_ms=%d",
+                     len(str(parsed_paper)), len(str(raw_story)), pipeline_elapsed_ms)
+        if len(str(parsed_paper)) < 100:
+            logger.warning("Paper parser produced minimal output: %s", str(parsed_paper)[:500])
+
         if not raw_story:
             js.fail_job(job_id, "Pipeline did not produce a final story.")
             return
 
         story = _parse_final_story(str(raw_story), job_id)
+
+        # Inject captured media into story scenes for GCS persistence
+        scenes = story.get("scenes", [])
+        if collected_images:
+            logger.info("Injecting %d captured images into %d scenes", len(collected_images), len(scenes))
+            for i, scene in enumerate(scenes):
+                if i < len(collected_images):
+                    scene["imageBase64"] = collected_images[i]
+        if collected_audio:
+            logger.info("Injecting %d captured audio clips into %d scenes", len(collected_audio), len(scenes))
+            for i, scene in enumerate(scenes):
+                if i < len(collected_audio):
+                    scene["audioBase64"] = collected_audio[i]
 
         # Extract metadata from pipeline state
         field = _extract_field_of_study(session.state.get(STATE_CONCEPTS, ""))
@@ -218,6 +317,7 @@ async def _run_pipeline_task(
             age_group=age_group,
             style=style,
             story_content=story,
+            session_id=session.id,
         )
 
         js.complete_job(job_id)

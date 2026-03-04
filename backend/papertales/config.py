@@ -14,6 +14,9 @@ STATE_AUDIO = "audio_urls"
 STATE_FACTCHECK = "fact_check_result"
 STATE_FINAL = "final_story"
 
+# Correlation keys
+STATE_SESSION_ID = "session_id"
+
 # User-provided input keys
 STATE_USER_PAPER_URL = "user_paper_url"
 STATE_USER_AGE_GROUP = "age_group"

@@ -69,6 +69,10 @@ class JobService:
             return
 
         stage_number, label = entry
+        logger.info(
+            "Stage advanced: agent=%s stage=%d/%d label='%s'",
+            agent_name, stage_number, TOTAL_STAGES, label,
+        )
         self._db.collection(JOBS_COLLECTION).document(job_id).update({
             "current_stage": stage_number,
             "stage_label": label,
@@ -93,6 +97,7 @@ class JobService:
                     delta = now - created
                 processing_time_ms = int(delta.total_seconds() * 1000)
 
+        logger.info("Job completed: processing_time_ms=%s", processing_time_ms)
         doc_ref.update({
             "status": "complete",
             "current_stage": TOTAL_STAGES,
@@ -104,6 +109,7 @@ class JobService:
 
     def fail_job(self, job_id: str, error: str) -> None:
         """Mark job as error with the given message."""
+        logger.error("Job failed: %s", error)
         self._db.collection(JOBS_COLLECTION).document(job_id).update({
             "status": "error",
             "error": error,

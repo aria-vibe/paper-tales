@@ -1,5 +1,6 @@
 """Tools for extracting text from research papers."""
 
+import logging
 import os
 import re
 import tempfile
@@ -8,6 +9,12 @@ import fitz
 import httpx
 import pdfplumber
 
+logger = logging.getLogger(__name__)
+
+# Polite User-Agent so archives don't block us (arXiv requires one)
+_HTTP_HEADERS = {
+    "User-Agent": "PaperTalesBot/1.0 (academic research tool; +https://github.com/anthropics)"
+}
 
 # ---------------------------------------------------------------------------
 # Private helpers
@@ -147,18 +154,23 @@ def fetch_arxiv_paper(arxiv_url: str) -> dict:
     """
     arxiv_id = _extract_arxiv_id(arxiv_url)
     if not arxiv_id:
+        logger.error("Could not extract arXiv ID from: %s", arxiv_url)
         return {"error": f"Could not extract arXiv ID from: {arxiv_url}"}
 
     pdf_url = f"https://arxiv.org/pdf/{arxiv_id}"
     tmp_path = None
+    logger.info("Fetching arXiv PDF: %s", pdf_url)
 
     try:
-        with httpx.Client(timeout=60, follow_redirects=True) as client:
+        with httpx.Client(timeout=60, follow_redirects=True, headers=_HTTP_HEADERS) as client:
             resp = client.get(pdf_url)
             resp.raise_for_status()
 
         content_type = resp.headers.get("content-type", "")
+        logger.info("arXiv response: HTTP %d, content-type=%s, size=%d",
+                     resp.status_code, content_type, len(resp.content))
         if "pdf" not in content_type and not resp.content[:5] == b"%PDF-":
+            logger.error("Response is not a PDF (content-type: %s)", content_type)
             return {"error": f"Response is not a PDF (content-type: {content_type})"}
 
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
@@ -166,13 +178,20 @@ def fetch_arxiv_paper(arxiv_url: str) -> dict:
             tmp_path = tmp.name
 
         result = extract_text_from_pdf(tmp_path)
+        text_len = len(result.get("text", ""))
+        logger.info("PDF extracted: %d pages, %d chars of text", result.get("pages", 0), text_len)
         result["metadata"]["arxiv_id"] = arxiv_id
         return result
 
     except httpx.HTTPStatusError as exc:
+        logger.error("HTTP %d fetching %s", exc.response.status_code, pdf_url)
         return {"error": f"HTTP {exc.response.status_code} fetching {pdf_url}"}
     except httpx.RequestError as exc:
+        logger.error("Network error fetching arXiv paper: %s", exc)
         return {"error": f"Network error fetching arXiv paper: {exc}"}
+    except Exception as exc:
+        logger.exception("Unexpected error fetching arXiv paper")
+        return {"error": f"Unexpected error: {exc}"}
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -217,7 +236,7 @@ def fetch_paper_from_url(paper_url: str) -> dict:
         resp = None
         for pdf_url in pdf_urls_to_try:
             try:
-                with httpx.Client(timeout=60, follow_redirects=True) as client:
+                with httpx.Client(timeout=60, follow_redirects=True, headers=_HTTP_HEADERS) as client:
                     resp = client.get(pdf_url)
                     resp.raise_for_status()
                 content_type = resp.headers.get("content-type", "")

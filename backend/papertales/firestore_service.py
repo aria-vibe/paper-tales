@@ -65,6 +65,7 @@ class FirestoreService:
         age_group: str,
         style: str,
         story_content: dict,
+        session_id: str = "",
     ) -> dict:
         """Save story: media to GCS version folder, text+metadata to Firestore."""
         doc_ref = self._db.collection(STORIES_COLLECTION).document(story_id)
@@ -99,6 +100,7 @@ class FirestoreService:
             "updated_at": now,
             "current_version": next_version,
             "flagged_for_regen": False,
+            "session_id": session_id,
             # Text content (new format)
             "scenes": clean_story.get("scenes", []),
             "glossary": clean_story.get("glossary", {}),
@@ -432,6 +434,8 @@ class FirestoreService:
             story["style"] = data["style"]
         if "createdAt" in data:
             story["createdAt"] = data["createdAt"]
+        if data.get("session_id"):
+            story["sessionId"] = data["session_id"]
 
         return story
 
