@@ -1,5 +1,6 @@
 """Firestore + GCS persistence for PaperTales stories."""
 
+import base64
 import hashlib
 import json
 import logging
@@ -50,22 +51,7 @@ class FirestoreService:
         if data.get("flagged_for_regen", False):
             return None
 
-        # Fetch latest version content from GCS
-        version = data.get("current_version", 1)
-        content = self._read_version_from_gcs(story_id, version)
-        if content is None:
-            return None
-
-        # Merge metadata into content
-        content["id"] = story_id
-        content["paperTitle"] = data.get("paper_title", "")
-        content["authors"] = data.get("authors", "")
-        content["fieldOfStudy"] = data.get("field_of_study", "Other")
-        content["version"] = version
-        content["upvotes"] = data.get("upvotes", 0)
-        content["downvotes"] = data.get("downvotes", 0)
-
-        return content
+        return self._load_story_content(story_id, data)
 
     def save_story(
         self,
@@ -80,7 +66,7 @@ class FirestoreService:
         style: str,
         story_content: dict,
     ) -> dict:
-        """Save story content to GCS and metadata to Firestore."""
+        """Save story: media to GCS version folder, text+metadata to Firestore."""
         doc_ref = self._db.collection(STORIES_COLLECTION).document(story_id)
         doc = doc_ref.get()
 
@@ -91,10 +77,14 @@ class FirestoreService:
 
         next_version = current_version + 1
 
-        # Upload content to GCS
-        self._write_version_to_gcs(story_id, next_version, story_content)
+        # Separate media from text content
+        clean_story, media_items = self._extract_media_from_story(story_content)
 
-        # Upsert Firestore metadata
+        # Upload media files to GCS version folder
+        if media_items:
+            self._upload_media_to_gcs(story_id, next_version, media_items)
+
+        # Upsert Firestore metadata + text content
         now = datetime.now(timezone.utc)
         metadata = {
             "paper_id": paper_id,
@@ -105,10 +95,18 @@ class FirestoreService:
             "field_of_study": field_of_study,
             "age_group": age_group,
             "style": style,
-            "title": story_content.get("title", ""),
+            "title": clean_story.get("title", ""),
             "updated_at": now,
             "current_version": next_version,
             "flagged_for_regen": False,
+            # Text content (new format)
+            "scenes": clean_story.get("scenes", []),
+            "glossary": clean_story.get("glossary", {}),
+            "fact_check": clean_story.get("factCheck", clean_story.get("fact_check", {})),
+            "what_we_learned": clean_story.get("whatWeLearned", clean_story.get("what_we_learned", "")),
+            "source_paper": clean_story.get("sourcePaper", clean_story.get("source_paper", {})),
+            "ageGroup": clean_story.get("ageGroup", age_group),
+            "createdAt": clean_story.get("createdAt", now.isoformat()),
         }
 
         if not doc.exists:
@@ -136,9 +134,17 @@ class FirestoreService:
             return None
 
         data = doc.to_dict()
+        return self._load_story_content(story_id, data)
+
+    def _load_story_content(self, story_id: str, data: dict) -> dict | None:
+        """Load story content with backward-compatible format detection."""
+        # New format: scenes stored directly in Firestore
+        if isinstance(data.get("scenes"), list):
+            return self._build_story_from_firestore(story_id, data)
+
+        # Old format: monolithic JSON blob in GCS
         version = data.get("current_version", 1)
         content = self._read_version_from_gcs(story_id, version)
-
         if content is None:
             return None
 
@@ -306,7 +312,128 @@ class FirestoreService:
     # ------------------------------------------------------------------
 
     def _gcs_path(self, story_id: str, version: int) -> str:
+        """Legacy path for monolithic JSON blobs."""
         return f"stories/{story_id}/v{version}.json"
+
+    def _gcs_media_prefix(self, story_id: str, version: int) -> str:
+        return f"stories/{story_id}/v{version}/"
+
+    def _gcs_image_path(self, story_id: str, version: int, scene_index: int) -> str:
+        return f"stories/{story_id}/v{version}/scene_{scene_index}_image.png"
+
+    def _gcs_audio_path(self, story_id: str, version: int, scene_index: int) -> str:
+        return f"stories/{story_id}/v{version}/scene_{scene_index}_audio.mp3"
+
+    def _extract_media_from_story(self, story_content: dict) -> tuple[dict, list[dict]]:
+        """Strip base64 media from scenes, return (text_only_story, media_items)."""
+        import copy
+        clean_story = copy.deepcopy(story_content)
+        media_items = []
+
+        for i, scene in enumerate(clean_story.get("scenes", [])):
+            if "imageBase64" in scene:
+                raw = scene.pop("imageBase64")
+                if raw:
+                    try:
+                        data = base64.b64decode(raw)
+                        media_items.append({
+                            "scene_index": i,
+                            "type": "image",
+                            "data": data,
+                            "content_type": "image/png",
+                        })
+                    except Exception:
+                        logger.warning("Failed to decode image base64 for scene %d", i)
+
+            if "audioBase64" in scene:
+                raw = scene.pop("audioBase64")
+                if raw:
+                    try:
+                        data = base64.b64decode(raw)
+                        media_items.append({
+                            "scene_index": i,
+                            "type": "audio",
+                            "data": data,
+                            "content_type": "audio/mpeg",
+                        })
+                    except Exception:
+                        logger.warning("Failed to decode audio base64 for scene %d", i)
+
+        return clean_story, media_items
+
+    def _upload_media_to_gcs(self, story_id: str, version: int, media_items: list[dict]) -> None:
+        """Upload extracted media items to individual GCS files."""
+        for item in media_items:
+            if item["type"] == "image":
+                path = self._gcs_image_path(story_id, version, item["scene_index"])
+            else:
+                path = self._gcs_audio_path(story_id, version, item["scene_index"])
+
+            blob = self._bucket.blob(path)
+            blob.upload_from_string(item["data"], content_type=item["content_type"])
+
+    def _rehydrate_media(self, story_id: str, version: int, scenes: list[dict]) -> list[dict]:
+        """Attach base64-encoded media back to scenes by reading from GCS."""
+        import copy
+        hydrated = copy.deepcopy(scenes)
+
+        for i, scene in enumerate(hydrated):
+            # Try image
+            img_path = self._gcs_image_path(story_id, version, i)
+            try:
+                img_blob = self._bucket.blob(img_path)
+                img_data = img_blob.download_as_bytes()
+                scene["imageBase64"] = base64.b64encode(img_data).decode("utf-8")
+            except Exception:
+                pass  # No image for this scene
+
+            # Try audio
+            audio_path = self._gcs_audio_path(story_id, version, i)
+            try:
+                audio_blob = self._bucket.blob(audio_path)
+                audio_data = audio_blob.download_as_bytes()
+                scene["audioBase64"] = base64.b64encode(audio_data).decode("utf-8")
+            except Exception:
+                pass  # No audio for this scene
+
+        return hydrated
+
+    def _build_story_from_firestore(self, story_id: str, data: dict) -> dict:
+        """Reconstruct full story response from Firestore data + GCS media."""
+        version = data.get("current_version", 1)
+        scenes = self._rehydrate_media(story_id, version, data.get("scenes", []))
+
+        story = {
+            "id": story_id,
+            "title": data.get("title", ""),
+            "scenes": scenes,
+            "paperTitle": data.get("paper_title", ""),
+            "authors": data.get("authors", ""),
+            "fieldOfStudy": data.get("field_of_study", "Other"),
+            "version": version,
+            "upvotes": data.get("upvotes", 0),
+            "downvotes": data.get("downvotes", 0),
+        }
+
+        # Include optional text fields if present
+        if "glossary" in data:
+            story["glossary"] = data["glossary"]
+        if "fact_check" in data:
+            story["factCheck"] = data["fact_check"]
+        if "what_we_learned" in data:
+            story["whatWeLearned"] = data["what_we_learned"]
+        if "source_paper" in data:
+            story["sourcePaper"] = data["source_paper"]
+        if "ageGroup" in data:
+            story["ageGroup"] = data["ageGroup"]
+        elif "age_group" in data:
+            story["ageGroup"] = data["age_group"]
+        if "style" in data:
+            story["style"] = data["style"]
+        if "createdAt" in data:
+            story["createdAt"] = data["createdAt"]
+
+        return story
 
     def _write_version_to_gcs(self, story_id: str, version: int, content: dict) -> None:
         blob = self._bucket.blob(self._gcs_path(story_id, version))
@@ -325,8 +452,22 @@ class FirestoreService:
             return None
 
     def _delete_version_from_gcs(self, story_id: str, version: int) -> None:
-        blob = self._bucket.blob(self._gcs_path(story_id, version))
+        """Delete both old-format blob and new-format media folder."""
+        # Old format: single JSON blob
+        old_blob = self._bucket.blob(self._gcs_path(story_id, version))
         try:
-            blob.delete()
+            old_blob.delete()
         except Exception:
-            logger.warning("Failed to delete GCS blob: %s", self._gcs_path(story_id, version))
+            pass  # May not exist in old format
+
+        # New format: all blobs under version prefix
+        prefix = self._gcs_media_prefix(story_id, version)
+        try:
+            blobs = list(self._bucket.list_blobs(prefix=prefix))
+            for blob in blobs:
+                try:
+                    blob.delete()
+                except Exception:
+                    logger.warning("Failed to delete GCS blob: %s", blob.name)
+        except Exception:
+            logger.warning("Failed to list GCS blobs with prefix: %s", prefix)

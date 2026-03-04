@@ -131,8 +131,9 @@ def _parse_final_story(raw: str, story_id: str) -> dict:
     if isinstance(story.get("glossary"), list):
         glossary_dict = {}
         for item in story["glossary"]:
-            if isinstance(item, dict) and "term" in item and "definition" in item:
-                glossary_dict[item["term"]] = item["definition"]
+            if isinstance(item, dict) and "term" in item:
+                definition = item.get("definition") or item.get("meaning", "")
+                glossary_dict[item["term"]] = definition
         story["glossary"] = glossary_dict
 
     story["id"] = story_id

@@ -1,7 +1,8 @@
 """Tests for Firestore persistence service (mocked)."""
 
+import base64
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -43,6 +44,51 @@ def service(mock_firestore, mock_storage):
     )
 
 
+# Helper: create sample story content with base64 media
+SAMPLE_IMAGE_BYTES = b"\x89PNG\r\n\x1a\nfake-image-data"
+SAMPLE_AUDIO_BYTES = b"ID3fake-audio-data"
+SAMPLE_IMAGE_B64 = base64.b64encode(SAMPLE_IMAGE_BYTES).decode("utf-8")
+SAMPLE_AUDIO_B64 = base64.b64encode(SAMPLE_AUDIO_BYTES).decode("utf-8")
+
+
+def _story_with_media():
+    return {
+        "title": "Test Story",
+        "ageGroup": "10-13",
+        "style": "fairy_tale",
+        "scenes": [
+            {
+                "scene_number": 1,
+                "title": "Scene 1",
+                "text": "Once upon a time...",
+                "imageBase64": SAMPLE_IMAGE_B64,
+                "audioBase64": SAMPLE_AUDIO_B64,
+            },
+            {
+                "scene_number": 2,
+                "title": "Scene 2",
+                "text": "And then...",
+                "imageBase64": SAMPLE_IMAGE_B64,
+            },
+        ],
+        "glossary": {"photon": "a particle of light"},
+        "factCheck": {"accuracy_rating": 0.9, "summary": "Good"},
+        "whatWeLearned": "Light is fast",
+        "sourcePaper": {"title": "Paper A", "authors": "Author A"},
+        "createdAt": "2026-01-01T00:00:00Z",
+    }
+
+
+def _story_without_media():
+    return {
+        "title": "Text Only",
+        "scenes": [
+            {"scene_number": 1, "text": "Hello"},
+        ],
+        "glossary": {},
+    }
+
+
 # ---------------------------------------------------------------------------
 # compute_story_id
 # ---------------------------------------------------------------------------
@@ -66,6 +112,114 @@ class TestComputeStoryId:
     def test_hex_chars_only(self):
         story_id = FirestoreService.compute_story_id("paper", "6-9", "sci_fi")
         assert all(c in "0123456789abcdef" for c in story_id)
+
+
+# ---------------------------------------------------------------------------
+# Media extraction
+# ---------------------------------------------------------------------------
+
+
+class TestMediaExtraction:
+    def test_extracts_image_and_audio(self, service):
+        story = _story_with_media()
+        clean, media = service._extract_media_from_story(story)
+
+        # Scenes should have no base64 keys
+        for scene in clean["scenes"]:
+            assert "imageBase64" not in scene
+            assert "audioBase64" not in scene
+
+        # Should have 3 media items: 2 images + 1 audio
+        assert len(media) == 3
+        images = [m for m in media if m["type"] == "image"]
+        audios = [m for m in media if m["type"] == "audio"]
+        assert len(images) == 2
+        assert len(audios) == 1
+
+    def test_media_bytes_decoded_correctly(self, service):
+        story = _story_with_media()
+        _, media = service._extract_media_from_story(story)
+
+        img = next(m for m in media if m["type"] == "image" and m["scene_index"] == 0)
+        assert img["data"] == SAMPLE_IMAGE_BYTES
+        assert img["content_type"] == "image/png"
+
+        aud = next(m for m in media if m["type"] == "audio")
+        assert aud["data"] == SAMPLE_AUDIO_BYTES
+        assert aud["content_type"] == "audio/mpeg"
+
+    def test_no_media_returns_empty_list(self, service):
+        story = _story_without_media()
+        clean, media = service._extract_media_from_story(story)
+
+        assert media == []
+        assert clean["scenes"][0]["text"] == "Hello"
+
+    def test_empty_base64_skipped(self, service):
+        story = {
+            "title": "T",
+            "scenes": [{"text": "Hi", "imageBase64": "", "audioBase64": ""}],
+        }
+        _, media = service._extract_media_from_story(story)
+        assert media == []
+
+    def test_original_not_mutated(self, service):
+        story = _story_with_media()
+        original_b64 = story["scenes"][0]["imageBase64"]
+        service._extract_media_from_story(story)
+        # Original should be untouched
+        assert story["scenes"][0]["imageBase64"] == original_b64
+
+
+# ---------------------------------------------------------------------------
+# Media rehydration
+# ---------------------------------------------------------------------------
+
+
+class TestMediaRehydration:
+    def test_rehydrates_image_and_audio(self, service, mock_storage):
+        bucket = mock_storage.bucket.return_value
+        blob = MagicMock()
+
+        def make_blob(path):
+            b = MagicMock()
+            if "image" in path:
+                b.download_as_bytes.return_value = SAMPLE_IMAGE_BYTES
+            elif "audio" in path:
+                b.download_as_bytes.return_value = SAMPLE_AUDIO_BYTES
+            else:
+                b.download_as_bytes.side_effect = Exception("not found")
+            return b
+
+        bucket.blob.side_effect = make_blob
+
+        scenes = [{"text": "Hello", "scene_number": 1}]
+        hydrated = service._rehydrate_media("s1", 1, scenes)
+
+        assert hydrated[0]["imageBase64"] == SAMPLE_IMAGE_B64
+        assert hydrated[0]["audioBase64"] == SAMPLE_AUDIO_B64
+
+    def test_missing_media_omitted(self, service, mock_storage):
+        bucket = mock_storage.bucket.return_value
+        blob = MagicMock()
+        blob.download_as_bytes.side_effect = Exception("not found")
+        bucket.blob.return_value = blob
+
+        scenes = [{"text": "Hello"}]
+        hydrated = service._rehydrate_media("s1", 1, scenes)
+
+        assert "imageBase64" not in hydrated[0]
+        assert "audioBase64" not in hydrated[0]
+
+    def test_original_scenes_not_mutated(self, service, mock_storage):
+        bucket = mock_storage.bucket.return_value
+        blob = MagicMock()
+        blob.download_as_bytes.side_effect = Exception("not found")
+        bucket.blob.return_value = blob
+
+        scenes = [{"text": "Hello"}]
+        service._rehydrate_media("s1", 1, scenes)
+        assert "imageBase64" not in scenes[0]
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +248,39 @@ class TestGetCachedStory:
         result = service.get_cached_story("flagged-id")
         assert result is None
 
-    def test_returns_story_when_cached(self, service, mock_firestore, mock_storage):
+    def test_returns_story_new_format(self, service, mock_firestore, mock_storage):
+        """New format: scenes in Firestore, media rehydrated from GCS."""
+        bucket = mock_storage.bucket.return_value
+        blob = MagicMock()
+        blob.download_as_bytes.side_effect = Exception("not found")
+        bucket.blob.return_value = blob
+
+        doc = MagicMock()
+        doc.exists = True
+        doc.to_dict.return_value = {
+            "flagged_for_regen": False,
+            "current_version": 2,
+            "paper_title": "Test Paper",
+            "authors": "Author A",
+            "field_of_study": "Physics",
+            "upvotes": 5,
+            "downvotes": 1,
+            "title": "Physics Story",
+            "scenes": [{"text": "Scene text", "scene_number": 1}],
+            "glossary": {"atom": "tiny thing"},
+        }
+        mock_firestore.collection.return_value.document.return_value.get.return_value = doc
+
+        result = service.get_cached_story("cached-id")
+        assert result is not None
+        assert result["title"] == "Physics Story"
+        assert result["paperTitle"] == "Test Paper"
+        assert result["upvotes"] == 5
+        assert result["version"] == 2
+        assert result["glossary"] == {"atom": "tiny thing"}
+
+    def test_returns_story_old_format(self, service, mock_firestore, mock_storage):
+        """Old format: no scenes in Firestore, read from GCS JSON blob."""
         doc = MagicMock()
         doc.exists = True
         doc.to_dict.return_value = {
@@ -127,10 +313,12 @@ class TestGetCachedStory:
 
 
 class TestSaveStory:
-    def test_creates_new_story(self, service, mock_firestore, mock_storage):
+    def test_creates_new_story_with_media(self, service, mock_firestore, mock_storage):
         doc = MagicMock()
         doc.exists = False
         mock_firestore.collection.return_value.document.return_value.get.return_value = doc
+
+        bucket = mock_storage.bucket.return_value
 
         result = service.save_story(
             story_id="new-id",
@@ -142,18 +330,17 @@ class TestSaveStory:
             field_of_study="Physics",
             age_group="10-13",
             style="fairy_tale",
-            story_content={"title": "Test", "scenes": []},
+            story_content=_story_with_media(),
         )
 
         assert result["id"] == "new-id"
         assert result["version"] == 1
 
-        # Verify GCS upload was called
-        mock_storage.bucket.return_value.blob.assert_called()
-        blob = mock_storage.bucket.return_value.blob.return_value
-        blob.upload_from_string.assert_called_once()
+        # Verify media upload to GCS (2 images + 1 audio = 3 uploads)
+        upload_calls = bucket.blob.return_value.upload_from_string.call_args_list
+        assert len(upload_calls) == 3
 
-        # Verify Firestore set was called with merge
+        # Verify Firestore set was called with scenes (no base64)
         doc_ref = mock_firestore.collection.return_value.document.return_value
         doc_ref.set.assert_called_once()
         call_args = doc_ref.set.call_args
@@ -162,6 +349,37 @@ class TestSaveStory:
         assert metadata["paper_id"] == "2301.12345"
         assert metadata["current_version"] == 1
         assert metadata["upvotes"] == 0
+        assert isinstance(metadata["scenes"], list)
+        assert len(metadata["scenes"]) == 2
+        # Scenes should NOT contain base64
+        for scene in metadata["scenes"]:
+            assert "imageBase64" not in scene
+            assert "audioBase64" not in scene
+        assert metadata["glossary"] == {"photon": "a particle of light"}
+
+    def test_creates_story_without_media(self, service, mock_firestore, mock_storage):
+        doc = MagicMock()
+        doc.exists = False
+        mock_firestore.collection.return_value.document.return_value.get.return_value = doc
+
+        bucket = mock_storage.bucket.return_value
+
+        result = service.save_story(
+            story_id="no-media",
+            paper_id="paper1",
+            archive="arXiv",
+            source_url="url",
+            paper_title="Title",
+            authors="Author",
+            field_of_study="Biology",
+            age_group="6-9",
+            style="adventure",
+            story_content=_story_without_media(),
+        )
+
+        assert result["version"] == 1
+        # No media uploads should happen
+        bucket.blob.return_value.upload_from_string.assert_not_called()
 
     def test_increments_version(self, service, mock_firestore, mock_storage):
         doc = MagicMock()
@@ -179,7 +397,7 @@ class TestSaveStory:
             field_of_study="Biology",
             age_group="6-9",
             style="adventure",
-            story_content={"title": "Bio Story", "scenes": []},
+            story_content=_story_without_media(),
         )
 
         assert result["version"] == 4
@@ -189,6 +407,9 @@ class TestSaveStory:
         doc.exists = True
         doc.to_dict.return_value = {"current_version": MAX_VERSIONS}
         mock_firestore.collection.return_value.document.return_value.get.return_value = doc
+
+        bucket = mock_storage.bucket.return_value
+        bucket.list_blobs.return_value = []  # No blobs in prefix
 
         service.save_story(
             story_id="old-id",
@@ -200,18 +421,177 @@ class TestSaveStory:
             field_of_study="Physics",
             age_group="10-13",
             style="fairy_tale",
-            story_content={"title": "Story", "scenes": []},
+            story_content=_story_without_media(),
         )
 
-        # Should delete version 1 (oldest)
-        bucket = mock_storage.bucket.return_value
-        # blob() is called for both write and delete
+        # Should attempt to delete version 1 (old blob + list prefix)
         blob_calls = bucket.blob.call_args_list
-        delete_paths = [
-            call[0][0] for call in blob_calls
-            if "v1.json" in call[0][0]
-        ]
+        delete_paths = [c[0][0] for c in blob_calls if "v1.json" in c[0][0]]
         assert len(delete_paths) >= 1
+
+    def test_stores_text_content_in_firestore(self, service, mock_firestore, mock_storage):
+        """Verify all text fields are written to Firestore metadata."""
+        doc = MagicMock()
+        doc.exists = False
+        mock_firestore.collection.return_value.document.return_value.get.return_value = doc
+
+        service.save_story(
+            story_id="text-id",
+            paper_id="p1",
+            archive="arXiv",
+            source_url="url",
+            paper_title="Title",
+            authors="Auth",
+            field_of_study="CS",
+            age_group="10-13",
+            style="sci_fi",
+            story_content=_story_with_media(),
+        )
+
+        doc_ref = mock_firestore.collection.return_value.document.return_value
+        metadata = doc_ref.set.call_args[0][0]
+        assert metadata["glossary"] == {"photon": "a particle of light"}
+        assert metadata["fact_check"] == {"accuracy_rating": 0.9, "summary": "Good"}
+        assert metadata["what_we_learned"] == "Light is fast"
+        assert metadata["source_paper"] == {"title": "Paper A", "authors": "Author A"}
+        assert metadata["ageGroup"] == "10-13"
+        assert metadata["createdAt"] == "2026-01-01T00:00:00Z"
+
+
+# ---------------------------------------------------------------------------
+# Backward compatibility
+# ---------------------------------------------------------------------------
+
+
+class TestBackwardCompatibility:
+    def test_old_format_reads_from_gcs(self, service, mock_firestore, mock_storage):
+        """Old format: no 'scenes' list in Firestore → read JSON from GCS."""
+        doc = MagicMock()
+        doc.exists = True
+        doc.to_dict.return_value = {
+            "current_version": 1,
+            "paper_title": "Old Paper",
+            "authors": "Author",
+            "field_of_study": "Math",
+            "upvotes": 3,
+            "downvotes": 0,
+        }
+        mock_firestore.collection.return_value.document.return_value.get.return_value = doc
+
+        gcs_content = {"title": "Old Story", "scenes": [{"text": "Chapter 1"}]}
+        blob = MagicMock()
+        blob.download_as_text.return_value = json.dumps(gcs_content)
+        mock_storage.bucket.return_value.blob.return_value = blob
+
+        result = service.get_story_by_id("old-story")
+        assert result["title"] == "Old Story"
+        assert result["paperTitle"] == "Old Paper"
+        assert result["version"] == 1
+
+    def test_new_format_reads_from_firestore(self, service, mock_firestore, mock_storage):
+        """New format: 'scenes' list in Firestore → build from Firestore + GCS media."""
+        bucket = mock_storage.bucket.return_value
+        blob = MagicMock()
+        blob.download_as_bytes.side_effect = Exception("not found")
+        bucket.blob.return_value = blob
+
+        doc = MagicMock()
+        doc.exists = True
+        doc.to_dict.return_value = {
+            "current_version": 2,
+            "paper_title": "New Paper",
+            "authors": "Author B",
+            "field_of_study": "Biology",
+            "upvotes": 10,
+            "downvotes": 2,
+            "title": "New Story",
+            "scenes": [
+                {"text": "Once...", "scene_number": 1},
+                {"text": "Then...", "scene_number": 2},
+            ],
+            "glossary": {"cell": "basic unit of life"},
+            "ageGroup": "6-9",
+            "style": "adventure",
+        }
+        mock_firestore.collection.return_value.document.return_value.get.return_value = doc
+
+        result = service.get_story_by_id("new-story")
+        assert result["title"] == "New Story"
+        assert result["paperTitle"] == "New Paper"
+        assert result["version"] == 2
+        assert len(result["scenes"]) == 2
+        assert result["glossary"] == {"cell": "basic unit of life"}
+        assert result["ageGroup"] == "6-9"
+
+    def test_old_format_gcs_failure_returns_none(self, service, mock_firestore, mock_storage):
+        """If old-format GCS read fails, return None."""
+        doc = MagicMock()
+        doc.exists = True
+        doc.to_dict.return_value = {
+            "current_version": 1,
+            "paper_title": "P",
+            "authors": "A",
+            "field_of_study": "Other",
+            "upvotes": 0,
+            "downvotes": 0,
+        }
+        mock_firestore.collection.return_value.document.return_value.get.return_value = doc
+
+        blob = MagicMock()
+        blob.download_as_text.side_effect = Exception("GCS error")
+        mock_storage.bucket.return_value.blob.return_value = blob
+
+        result = service.get_story_by_id("fail-story")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Delete version
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteVersion:
+    def test_deletes_old_format_blob(self, service, mock_storage):
+        bucket = mock_storage.bucket.return_value
+        old_blob = MagicMock()
+        bucket.blob.return_value = old_blob
+        bucket.list_blobs.return_value = []
+
+        service._delete_version_from_gcs("s1", 1)
+
+        old_blob.delete.assert_called_once()
+
+    def test_deletes_new_format_folder(self, service, mock_storage):
+        bucket = mock_storage.bucket.return_value
+        old_blob = MagicMock()
+        old_blob.delete.side_effect = Exception("not found")  # No old blob
+
+        media_blob1 = MagicMock()
+        media_blob1.name = "stories/s1/v1/scene_0_image.png"
+        media_blob2 = MagicMock()
+        media_blob2.name = "stories/s1/v1/scene_0_audio.mp3"
+
+        bucket.blob.return_value = old_blob
+        bucket.list_blobs.return_value = [media_blob1, media_blob2]
+
+        service._delete_version_from_gcs("s1", 1)
+
+        media_blob1.delete.assert_called_once()
+        media_blob2.delete.assert_called_once()
+
+    def test_handles_both_formats(self, service, mock_storage):
+        """Should try deleting both old blob and new folder."""
+        bucket = mock_storage.bucket.return_value
+        old_blob = MagicMock()
+        bucket.blob.return_value = old_blob
+        bucket.list_blobs.return_value = []
+
+        service._delete_version_from_gcs("s1", 2)
+
+        # Old blob deletion attempted
+        old_blob.delete.assert_called_once()
+        # Prefix listing attempted
+        bucket.list_blobs.assert_called_once_with(prefix="stories/s1/v2/")
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +665,7 @@ class TestVoteOnStory:
         assert result["upvotes"] == 2
 
     def test_regen_flag_at_threshold(self, service, mock_firestore):
-        # Set up: 3 up, 7 down = 10 total, >50% down → flag
+        # Set up: 3 up, 7 down = 10 total, >50% down -> flag
         doc_ref = self._setup_vote_doc(
             mock_firestore,
             upvotes=3,
@@ -403,3 +783,24 @@ class TestGetTopPapersByField:
         result = service.get_top_papers_by_field()
         # Should be empty since all papers have 0 upvotes
         assert all(len(papers) == 0 for papers in result.values()) if result else True
+
+
+# ---------------------------------------------------------------------------
+# GCS path helpers
+# ---------------------------------------------------------------------------
+
+
+class TestGcsPathHelpers:
+    def test_gcs_path_legacy(self, service):
+        assert service._gcs_path("abc", 2) == "stories/abc/v2.json"
+
+    def test_gcs_media_prefix(self, service):
+        assert service._gcs_media_prefix("abc", 3) == "stories/abc/v3/"
+
+    def test_gcs_image_path(self, service):
+        assert service._gcs_image_path("abc", 1, 0) == "stories/abc/v1/scene_0_image.png"
+        assert service._gcs_image_path("abc", 2, 3) == "stories/abc/v2/scene_3_image.png"
+
+    def test_gcs_audio_path(self, service):
+        assert service._gcs_audio_path("abc", 1, 0) == "stories/abc/v1/scene_0_audio.mp3"
+        assert service._gcs_audio_path("abc", 2, 3) == "stories/abc/v2/scene_3_audio.mp3"
