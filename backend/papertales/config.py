@@ -2,7 +2,7 @@
 
 # Model names
 MODEL_GEMINI_FLASH = "gemini-2.5-flash"
-MODEL_GEMINI_FLASH_IMAGE = "gemini-2.5-flash-preview-image-generation"
+MODEL_GEMINI_FLASH_IMAGE = "gemini-2.5-flash-image"
 
 # State keys — each agent writes to its output_key, next agent reads via template
 STATE_PAPER_TEXT = "parsed_paper"
