@@ -29,7 +29,7 @@ export function Story({ getToken }: StoryProps) {
 
   return (
     <main className="story-page">
-      <StoryViewer story={story} />
+      <StoryViewer story={story} getToken={getToken} />
     </main>
   );
 }

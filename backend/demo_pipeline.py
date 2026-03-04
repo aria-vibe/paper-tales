@@ -215,7 +215,7 @@ async def run_quick_demo(age_group: str, style: str):
 
 async def run_full_pipeline(pdf_source: str, age_group: str, style: str):
     from papertales.agent import root_agent
-    from papertales.config import STATE_FINAL, STATE_USER_AGE_GROUP, STATE_USER_PDF, STATE_USER_STYLE
+    from papertales.config import STATE_FINAL, STATE_USER_AGE_GROUP, STATE_USER_PAPER_URL, STATE_USER_STYLE
 
     runner = InMemoryRunner(agent=root_agent, app_name="papertales")
 
@@ -224,7 +224,7 @@ async def run_full_pipeline(pdf_source: str, age_group: str, style: str):
         app_name="papertales",
         user_id=user_id,
         state={
-            STATE_USER_PDF: pdf_source,
+            STATE_USER_PAPER_URL: pdf_source,
             STATE_USER_AGE_GROUP: age_group,
             STATE_USER_STYLE: style,
         },

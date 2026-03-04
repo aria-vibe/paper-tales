@@ -3,17 +3,27 @@
 import json
 import logging
 import os
-import tempfile
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Form, HTTPException
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import InMemoryRunner
 from google.genai import types
+from pydantic import BaseModel
 
 from papertales.auth import rate_limiter, verify_firebase_token
-from papertales.config import STATE_FINAL, STATE_USER_AGE_GROUP, STATE_USER_PDF, STATE_USER_STYLE
+from papertales.config import (
+    FIELD_TAXONOMY,
+    STATE_CONCEPTS,
+    STATE_FINAL,
+    STATE_PAPER_TEXT,
+    STATE_USER_AGE_GROUP,
+    STATE_USER_PAPER_URL,
+    STATE_USER_STYLE,
+)
+from papertales.url_validation import validate_archive_url
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +36,11 @@ app = get_fast_api_app(
     allow_origins=CORS_ORIGINS.split(","),
 )
 
-# In-memory story cache (production would use Firestore)
-_story_cache: dict[str, dict] = {}
-
-# Lazy-initialized runner (avoids import-time agent instantiation issues)
+# Lazy-initialized singletons
 _runner: InMemoryRunner | None = None
 APP_NAME = "papertales"
+
+_firestore_service = None
 
 
 def _get_runner() -> InMemoryRunner:
@@ -43,7 +52,42 @@ def _get_runner() -> InMemoryRunner:
     return _runner
 
 
-def _parse_final_story(raw: str, session_id: str) -> dict:
+def _get_firestore_service():
+    global _firestore_service
+    if _firestore_service is None:
+        from papertales.firestore_service import FirestoreService
+
+        _firestore_service = FirestoreService()
+    return _firestore_service
+
+
+def _extract_field_of_study(concepts_text: str) -> str:
+    """Extract field of study from concept extractor output."""
+    match = re.search(r"\*\*Field\*\*:\s*(.+?)(?:\n|$)", concepts_text)
+    if match:
+        field = match.group(1).strip()
+        if field in FIELD_TAXONOMY:
+            return field
+    return "Other"
+
+
+def _extract_paper_metadata(paper_text: str) -> tuple[str, str]:
+    """Extract title and authors from paper parser output."""
+    title = ""
+    authors = ""
+
+    title_match = re.search(r"\*\*TITLE\*\*:\s*(.+?)(?:\n|$)", paper_text)
+    if title_match:
+        title = title_match.group(1).strip()
+
+    authors_match = re.search(r"\*\*AUTHORS\*\*:\s*(.+?)(?:\n|$)", paper_text)
+    if authors_match:
+        authors = authors_match.group(1).strip()
+
+    return title, authors
+
+
+def _parse_final_story(raw: str, story_id: str) -> dict:
     """Parse agent output into frontend-compatible story JSON."""
     text = raw.strip()
 
@@ -79,7 +123,7 @@ def _parse_final_story(raw: str, session_id: str) -> dict:
                 glossary_dict[item["term"]] = item["definition"]
         story["glossary"] = glossary_dict
 
-    story["id"] = session_id
+    story["id"] = story_id
     story["createdAt"] = datetime.now(timezone.utc).isoformat()
 
     return story
@@ -90,94 +134,160 @@ async def health():
     return {"status": "ok"}
 
 
-MAX_PDF_SIZE = 20 * 1024 * 1024  # 20 MB
-
-
 @app.post("/api/generate")
 async def generate_story(
     uid: str = Depends(verify_firebase_token),
-    file: UploadFile | None = File(None),
-    arxiv_url: str | None = Form(None),
+    paper_url: str = Form(...),
     age_group: str = Form("10-13"),
     style: str = Form("fairy_tale"),
 ):
     rate_limiter.check(uid)
 
-    if not file and not arxiv_url:
-        raise HTTPException(status_code=400, detail="Provide either a PDF file or an arxiv_url.")
-
-    runner = _get_runner()
-    tmp_path = None
-
+    # Validate URL against whitelist
     try:
-        # Handle PDF upload
-        pdf_path = ""
-        if file:
-            content = await file.read()
-            if len(content) > MAX_PDF_SIZE:
-                raise HTTPException(status_code=400, detail="PDF file exceeds 20 MB limit.")
-            suffix = ".pdf"
-            tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-            tmp.write(content)
-            tmp.close()
-            tmp_path = tmp.name
-            pdf_path = tmp_path
-        elif arxiv_url:
-            pdf_path = arxiv_url
+        normalized_url, archive_name, paper_id = validate_archive_url(paper_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-        # Create session with initial state
-        user_id = uid
-        session = await runner.session_service.create_session(
-            app_name=APP_NAME,
-            user_id=user_id,
-            state={
-                STATE_USER_PDF: pdf_path,
-                STATE_USER_AGE_GROUP: age_group,
-                STATE_USER_STYLE: style,
-            },
-        )
+    # Compute deterministic story ID for dedup
+    from papertales.firestore_service import FirestoreService
 
-        # Trigger the pipeline
-        trigger = types.Content(
-            role="user",
-            parts=[
-                types.Part(
-                    text=f"Transform this research paper into an illustrated story for age group {age_group} in {style} style."
-                )
-            ],
-        )
+    story_id = FirestoreService.compute_story_id(paper_id, age_group, style)
 
-        async for event in runner.run_async(
-            user_id=user_id,
-            session_id=session.id,
-            new_message=trigger,
-        ):
-            pass  # Pipeline runs to completion
+    # Check for cached story in Firestore
+    fs = _get_firestore_service()
+    cached = fs.get_cached_story(story_id)
+    if cached:
+        # Include user's vote if they have one
+        user_vote = fs.get_user_vote(story_id, uid)
+        if user_vote:
+            cached["userVote"] = user_vote
+        return cached
 
-        # Retrieve final story from session state
-        session = await runner.session_service.get_session(
-            app_name=APP_NAME,
-            user_id=user_id,
-            session_id=session.id,
-        )
-        raw_story = session.state.get(STATE_FINAL, "")
+    # Run the pipeline
+    runner = _get_runner()
+    session = await runner.session_service.create_session(
+        app_name=APP_NAME,
+        user_id=uid,
+        state={
+            STATE_USER_PAPER_URL: normalized_url,
+            STATE_USER_AGE_GROUP: age_group,
+            STATE_USER_STYLE: style,
+        },
+    )
 
-        if not raw_story:
-            raise HTTPException(status_code=500, detail="Pipeline did not produce a final story.")
+    trigger = types.Content(
+        role="user",
+        parts=[
+            types.Part(
+                text=f"Transform this research paper into an illustrated story for age group {age_group} in {style} style."
+            )
+        ],
+    )
 
-        story = _parse_final_story(str(raw_story), session.id)
-        _story_cache[session.id] = story
+    async for event in runner.run_async(
+        user_id=uid,
+        session_id=session.id,
+        new_message=trigger,
+    ):
+        pass  # Pipeline runs to completion
 
-        return story
+    # Retrieve final story from session state
+    session = await runner.session_service.get_session(
+        app_name=APP_NAME,
+        user_id=uid,
+        session_id=session.id,
+    )
+    raw_story = session.state.get(STATE_FINAL, "")
 
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    if not raw_story:
+        raise HTTPException(status_code=500, detail="Pipeline did not produce a final story.")
+
+    story = _parse_final_story(str(raw_story), story_id)
+
+    # Extract metadata from pipeline state
+    field = _extract_field_of_study(session.state.get(STATE_CONCEPTS, ""))
+    paper_title, authors = _extract_paper_metadata(session.state.get(STATE_PAPER_TEXT, ""))
+
+    # Persist to Firestore + GCS
+    fs.save_story(
+        story_id=story_id,
+        paper_id=paper_id,
+        archive=archive_name,
+        source_url=normalized_url,
+        paper_title=paper_title,
+        authors=authors,
+        field_of_study=field,
+        age_group=age_group,
+        style=style,
+        story_content=story,
+    )
+
+    return story
 
 
 @app.get("/api/stories/{story_id}")
 async def get_story(story_id: str, uid: str = Depends(verify_firebase_token)):
-    story = _story_cache.get(story_id)
+    fs = _get_firestore_service()
+    story = fs.get_story_by_id(story_id)
     if not story:
         raise HTTPException(status_code=404, detail="Story not found.")
+
+    # Include user's vote
+    user_vote = fs.get_user_vote(story_id, uid)
+    if user_vote:
+        story["userVote"] = user_vote
+
     return story
+
+
+class VoteRequest(BaseModel):
+    vote: str  # "up" or "down"
+
+
+@app.post("/api/stories/{story_id}/vote")
+async def vote_on_story(
+    story_id: str,
+    body: VoteRequest,
+    uid: str = Depends(verify_firebase_token),
+):
+    if body.vote not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="Vote must be 'up' or 'down'.")
+
+    fs = _get_firestore_service()
+
+    # Verify story exists
+    doc = fs.get_story_by_id(story_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Story not found.")
+
+    result = fs.vote_on_story(story_id, uid, body.vote)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Top papers endpoint with TTL cache
+# ---------------------------------------------------------------------------
+
+_top_papers_cache: dict | None = None
+_top_papers_cache_time: float = 0
+TOP_PAPERS_TTL = 300  # 5 minutes
+
+import time
+
+
+@app.get("/api/top-papers")
+async def get_top_papers(uid: str = Depends(verify_firebase_token)):
+    global _top_papers_cache, _top_papers_cache_time
+
+    now = time.time()
+    if _top_papers_cache is not None and (now - _top_papers_cache_time) < TOP_PAPERS_TTL:
+        return _top_papers_cache
+
+    fs = _get_firestore_service()
+    result = fs.get_top_papers_by_field(limit_per_field=3)
+
+    _top_papers_cache = result
+    _top_papers_cache_time = now
+
+    return result

@@ -2,6 +2,7 @@ import type { User } from "firebase/auth";
 import { PaperUploader } from "../components/PaperUploader";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { StoryViewer } from "../components/StoryViewer";
+import { TopPapers } from "../components/TopPapers";
 import { useStoryGeneration } from "../hooks/useStoryGeneration";
 
 interface HomeProps {
@@ -26,7 +27,7 @@ export function Home({ user, getToken }: HomeProps) {
           <button onClick={reset} className="btn-secondary">
             Create another story
           </button>
-          <StoryViewer story={story} />
+          <StoryViewer story={story} getToken={getToken} />
         </>
       ) : (
         <>
@@ -36,6 +37,7 @@ export function Home({ user, getToken }: HomeProps) {
           />
           <LoadingSpinner status={status} />
           {error && <p className="error-message">{error}</p>}
+          <TopPapers getToken={getToken} />
         </>
       )}
     </main>

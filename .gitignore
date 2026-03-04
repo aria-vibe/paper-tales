@@ -55,6 +55,7 @@ htmlcov/
 !package.json
 !package-lock.json
 !tsconfig*.json
+!firestore.indexes.json
 
 # Demo output
 backend/demo_output/

@@ -15,6 +15,26 @@ STATE_FACTCHECK = "fact_check_result"
 STATE_FINAL = "final_story"
 
 # User-provided input keys
-STATE_USER_PDF = "user_pdf_path"
+STATE_USER_PAPER_URL = "user_paper_url"
 STATE_USER_AGE_GROUP = "age_group"
 STATE_USER_STYLE = "story_style"
+
+# Field of study classification
+STATE_FIELD_OF_STUDY = "field_of_study"
+
+FIELD_TAXONOMY = [
+    "Biology",
+    "Chemistry",
+    "Computer Science",
+    "Earth Science",
+    "Economics",
+    "Engineering",
+    "Environmental Science",
+    "Mathematics",
+    "Medicine",
+    "Neuroscience",
+    "Physics",
+    "Psychology",
+    "Social Science",
+    "Other",
+]

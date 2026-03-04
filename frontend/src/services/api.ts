@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { GenerationRequest, Story } from "../types";
+import type { GenerationRequest, Story, TopPapersResponse, VoteResponse } from "../types";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:8000",
@@ -16,12 +16,7 @@ export async function generateStory(
   token: string
 ): Promise<Story> {
   const formData = new FormData();
-  if (request.file) {
-    formData.append("file", request.file);
-  }
-  if (request.arxivUrl) {
-    formData.append("arxiv_url", request.arxivUrl);
-  }
+  formData.append("paper_url", request.paperUrl);
   formData.append("age_group", request.ageGroup);
   formData.append("style", request.style);
 
@@ -33,6 +28,26 @@ export async function generateStory(
 
 export async function getStory(storyId: string, token: string): Promise<Story> {
   const { data } = await api.get(`/api/stories/${storyId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+export async function voteOnStory(
+  storyId: string,
+  vote: "up" | "down",
+  token: string
+): Promise<VoteResponse> {
+  const { data } = await api.post(
+    `/api/stories/${storyId}/vote`,
+    { vote },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
+
+export async function getTopPapers(token: string): Promise<TopPapersResponse> {
+  const { data } = await api.get("/api/top-papers", {
     headers: { Authorization: `Bearer ${token}` },
   });
   return data;

@@ -19,19 +19,28 @@ const STORY_STYLES: { value: StoryStyle; label: string }[] = [
   { value: "comic_book", label: "Comic Book" },
 ];
 
+const SUPPORTED_ARCHIVES = [
+  "arxiv.org",
+  "biorxiv.org",
+  "medrxiv.org",
+  "chemrxiv.org",
+  "ssrn.com",
+  "eartharxiv.org",
+  "psyarxiv.com",
+  "osf.io",
+];
+
 export function PaperUploader({ onSubmit, disabled }: PaperUploaderProps) {
-  const [file, setFile] = useState<File | null>(null);
-  const [arxivUrl, setArxivUrl] = useState("");
+  const [paperUrl, setPaperUrl] = useState("");
   const [ageGroup, setAgeGroup] = useState<AgeGroup>("10-13");
   const [style, setStyle] = useState<StoryStyle>("adventure");
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file && !arxivUrl) return;
+    if (!paperUrl) return;
 
     onSubmit({
-      file: file ?? undefined,
-      arxivUrl: arxivUrl || undefined,
+      paperUrl,
       ageGroup,
       style,
     });
@@ -39,29 +48,21 @@ export function PaperUploader({ onSubmit, disabled }: PaperUploaderProps) {
 
   return (
     <form onSubmit={handleSubmit} className="paper-uploader">
-      <h2>Upload a Research Paper</h2>
+      <h2>Enter a Research Paper URL</h2>
 
       <div className="form-group">
-        <label htmlFor="pdf-upload">PDF File</label>
+        <label htmlFor="paper-url">Paper URL</label>
         <input
-          id="pdf-upload"
-          type="file"
-          accept=".pdf"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          disabled={disabled}
-        />
-      </div>
-
-      <div className="form-group">
-        <label htmlFor="arxiv-url">Or paste an arXiv URL</label>
-        <input
-          id="arxiv-url"
+          id="paper-url"
           type="url"
-          placeholder="https://arxiv.org/abs/..."
-          value={arxivUrl}
-          onChange={(e) => setArxivUrl(e.target.value)}
+          placeholder="https://arxiv.org/abs/2301.12345"
+          value={paperUrl}
+          onChange={(e) => setPaperUrl(e.target.value)}
           disabled={disabled}
         />
+        <p className="form-hint">
+          Supported: {SUPPORTED_ARCHIVES.join(", ")}
+        </p>
       </div>
 
       <div className="form-row">
@@ -98,7 +99,7 @@ export function PaperUploader({ onSubmit, disabled }: PaperUploaderProps) {
         </div>
       </div>
 
-      <button type="submit" disabled={disabled || (!file && !arxivUrl)}>
+      <button type="submit" disabled={disabled || !paperUrl}>
         Generate Story
       </button>
     </form>

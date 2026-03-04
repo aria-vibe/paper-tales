@@ -176,3 +176,73 @@ def fetch_arxiv_paper(arxiv_url: str) -> dict:
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+def fetch_paper_from_url(paper_url: str) -> dict:
+    """Download and extract text from a whitelisted research paper archive URL.
+
+    Validates the URL against supported archives (arXiv, bioRxiv, medRxiv, etc.),
+    downloads the PDF, and extracts text content.
+
+    Args:
+        paper_url: URL of the paper on a supported archive.
+
+    Returns:
+        A dict with 'text', 'pages', 'metadata' (including 'paper_id',
+        'archive', 'source_url').
+    """
+    from ..url_validation import validate_archive_url
+
+    try:
+        normalized_url, archive_name, paper_id = validate_archive_url(paper_url)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+    # For arXiv, use the dedicated fetcher (handles PDF URL construction)
+    if archive_name == "arXiv":
+        result = fetch_arxiv_paper(normalized_url)
+        result["metadata"]["paper_id"] = paper_id
+        result["metadata"]["archive"] = archive_name
+        result["metadata"]["source_url"] = normalized_url
+        return result
+
+    # Generic archive: try to download PDF directly
+    # Many archives serve PDF at the same URL or with /pdf suffix
+    pdf_urls_to_try = [normalized_url]
+    if not normalized_url.endswith(".pdf"):
+        pdf_urls_to_try.append(normalized_url.rstrip("/") + ".pdf")
+
+    tmp_path = None
+    try:
+        resp = None
+        for pdf_url in pdf_urls_to_try:
+            try:
+                with httpx.Client(timeout=60, follow_redirects=True) as client:
+                    resp = client.get(pdf_url)
+                    resp.raise_for_status()
+                content_type = resp.headers.get("content-type", "")
+                if "pdf" in content_type or resp.content[:5] == b"%PDF-":
+                    break
+                resp = None
+            except (httpx.HTTPStatusError, httpx.RequestError):
+                resp = None
+                continue
+
+        if resp is None:
+            return {"error": f"Could not download PDF from {archive_name}: {normalized_url}"}
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(resp.content)
+            tmp_path = tmp.name
+
+        result = extract_text_from_pdf(tmp_path)
+        result["metadata"]["paper_id"] = paper_id
+        result["metadata"]["archive"] = archive_name
+        result["metadata"]["source_url"] = normalized_url
+        return result
+
+    except Exception as exc:
+        return {"error": f"Error fetching paper from {archive_name}: {exc}"}
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)

@@ -56,6 +56,14 @@ Provide 2–3 chains that capture the paper's core logic.
 For each core concept, provide a real-world analogy calibrated to {age_group}:
 - **<Concept>**: "<Analogy>"
 
+### FIELD OF STUDY
+Classify this paper into exactly ONE field from this list:
+Biology, Chemistry, Computer Science, Earth Science, Economics,
+Engineering, Environmental Science, Mathematics, Medicine,
+Neuroscience, Physics, Psychology, Social Science, Other
+
+**Field**: [one field from the list above]
+
 ### VISUAL OPPORTUNITIES
 List 3–5 scenes that the downstream illustration agent could draw to
 explain these concepts visually. Each should be:

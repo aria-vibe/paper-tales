@@ -1,6 +1,5 @@
 """Tests for the PaperTales API endpoints."""
 
-import io
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -32,7 +31,8 @@ def app():
 
     importlib.reload(main)
 
-    from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+    from fastapi import Depends, FastAPI, Form, HTTPException
+    from pydantic import BaseModel
     from papertales.auth import RateLimiter, verify_firebase_token
 
     test_app = FastAPI()
@@ -48,18 +48,32 @@ def app():
     @test_app.post("/api/generate")
     async def generate_story(
         uid: str = Depends(mock_verify_token),
-        file: UploadFile | None = File(None),
-        arxiv_url: str | None = Form(None),
+        paper_url: str = Form(...),
         age_group: str = Form("10-13"),
         style: str = Form("fairy_tale"),
     ):
-        return await main.generate_story(uid, file, arxiv_url, age_group, style)
+        return await main.generate_story(uid, paper_url, age_group, style)
 
     @test_app.get("/api/stories/{story_id}")
     async def get_story(story_id: str, uid: str = Depends(mock_verify_token)):
         return await main.get_story(story_id, uid)
 
-    main._story_cache.clear()
+    class VoteRequest(BaseModel):
+        vote: str
+
+    @test_app.post("/api/stories/{story_id}/vote")
+    async def vote_on_story(story_id: str, body: VoteRequest, uid: str = Depends(mock_verify_token)):
+        return await main.vote_on_story(story_id, body, uid)
+
+    @test_app.get("/api/top-papers")
+    async def get_top_papers(uid: str = Depends(mock_verify_token)):
+        return await main.get_top_papers(uid)
+
+    # Reset singletons
+    main._firestore_service = None
+    main._top_papers_cache = None
+    main._top_papers_cache_time = 0
+
     # Reset rate limiter for each test
     from papertales import auth
     auth.rate_limiter = RateLimiter()
@@ -70,6 +84,17 @@ def app():
 @pytest.fixture
 def client(app):
     return TestClient(app)
+
+
+@pytest.fixture
+def mock_fs():
+    """Create a mock FirestoreService."""
+    fs = MagicMock()
+    fs.get_cached_story.return_value = None
+    fs.get_story_by_id.return_value = None
+    fs.get_user_vote.return_value = None
+    fs.save_story.return_value = {"id": "test-id", "version": 1}
+    return fs
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +157,48 @@ class TestParseFinalStory:
 
 
 # ---------------------------------------------------------------------------
+# Field extraction helpers
+# ---------------------------------------------------------------------------
+
+
+class TestExtractFieldOfStudy:
+    def test_extracts_valid_field(self):
+        from main import _extract_field_of_study
+
+        text = "Some analysis...\n**Field**: Physics\nMore text"
+        assert _extract_field_of_study(text) == "Physics"
+
+    def test_returns_other_for_invalid(self):
+        from main import _extract_field_of_study
+
+        text = "No field here"
+        assert _extract_field_of_study(text) == "Other"
+
+    def test_returns_other_for_unknown_field(self):
+        from main import _extract_field_of_study
+
+        text = "**Field**: Underwater Basket Weaving"
+        assert _extract_field_of_study(text) == "Other"
+
+
+class TestExtractPaperMetadata:
+    def test_extracts_title_and_authors(self):
+        from main import _extract_paper_metadata
+
+        text = "**TITLE**: Quantum Computing\n**AUTHORS**: Alice, Bob\n**ABSTRACT**: ..."
+        title, authors = _extract_paper_metadata(text)
+        assert title == "Quantum Computing"
+        assert authors == "Alice, Bob"
+
+    def test_missing_fields(self):
+        from main import _extract_paper_metadata
+
+        title, authors = _extract_paper_metadata("no structured data here")
+        assert title == ""
+        assert authors == ""
+
+
+# ---------------------------------------------------------------------------
 # API endpoint tests
 # ---------------------------------------------------------------------------
 
@@ -144,15 +211,44 @@ class TestHealthEndpoint:
 
 
 class TestGenerateEndpoint:
-    def test_requires_input(self, client):
+    def test_rejects_non_whitelisted_url(self, client):
         resp = client.post(
             "/api/generate",
-            data={"age_group": "10-13", "style": "fairy_tale"},
+            data={
+                "paper_url": "https://example.com/paper.pdf",
+                "age_group": "10-13",
+                "style": "fairy_tale",
+            },
         )
         assert resp.status_code == 400
-        assert "Provide either" in resp.json()["detail"]
+        assert "Unsupported archive" in resp.json()["detail"]
 
-    def test_with_arxiv_url(self, client):
+    def test_returns_cached_story(self, client, mock_fs):
+        import main
+
+        cached_story = {
+            "id": "cached-123",
+            "title": "Cached Story",
+            "scenes": [{"text": "cached"}],
+            "createdAt": "2024-01-01T00:00:00Z",
+        }
+        mock_fs.get_cached_story.return_value = cached_story
+        main._firestore_service = mock_fs
+
+        resp = client.post(
+            "/api/generate",
+            data={
+                "paper_url": "https://arxiv.org/abs/2301.12345",
+                "age_group": "10-13",
+                "style": "fairy_tale",
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "Cached Story"
+        main._firestore_service = None
+
+    def test_with_arxiv_url_runs_pipeline(self, client, mock_fs):
         fake_story = json.dumps({
             "title": "Quantum for Kids",
             "scenes": [{"text": "Once upon a time..."}],
@@ -161,7 +257,11 @@ class TestGenerateEndpoint:
 
         mock_session = MagicMock()
         mock_session.id = "test-session-123"
-        mock_session.state = {"final_story": fake_story}
+        mock_session.state = {
+            "final_story": fake_story,
+            "extracted_concepts": "**Field**: Physics",
+            "parsed_paper": "**TITLE**: Quantum\n**AUTHORS**: Alice",
+        }
 
         mock_session_service = AsyncMock()
         mock_session_service.create_session = AsyncMock(return_value=mock_session)
@@ -178,11 +278,12 @@ class TestGenerateEndpoint:
 
         import main
         main._runner = mock_runner
+        main._firestore_service = mock_fs
 
         resp = client.post(
             "/api/generate",
             data={
-                "arxiv_url": "https://arxiv.org/abs/2301.00001",
+                "paper_url": "https://arxiv.org/abs/2301.00001",
                 "age_group": "10-13",
                 "style": "fairy_tale",
             },
@@ -191,81 +292,111 @@ class TestGenerateEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["title"] == "Quantum for Kids"
-        assert body["id"] == "test-session-123"
         assert "createdAt" in body
 
-        main._runner = None
-
-    def test_with_pdf_upload(self, client):
-        fake_story = json.dumps({
-            "title": "PDF Story",
-            "scenes": [{"text": "A story from PDF"}],
-        })
-
-        mock_session = MagicMock()
-        mock_session.id = "pdf-session-456"
-        mock_session.state = {"final_story": fake_story}
-
-        mock_session_service = AsyncMock()
-        mock_session_service.create_session = AsyncMock(return_value=mock_session)
-        mock_session_service.get_session = AsyncMock(return_value=mock_session)
-
-        mock_runner = MagicMock()
-        mock_runner.session_service = mock_session_service
-
-        async def fake_run_async(**kwargs):
-            return
-            yield
-
-        mock_runner.run_async = fake_run_async
-
-        import main
-        main._runner = mock_runner
-
-        pdf_content = b"%PDF-1.4 fake content"
-        resp = client.post(
-            "/api/generate",
-            data={"age_group": "6-9", "style": "adventure"},
-            files={"file": ("paper.pdf", io.BytesIO(pdf_content), "application/pdf")},
-        )
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["title"] == "PDF Story"
-        assert body["id"] == "pdf-session-456"
+        # Verify save was called
+        mock_fs.save_story.assert_called_once()
 
         main._runner = None
-
-    def test_pdf_size_limit(self, client):
-        # 21 MB of data — over the 20 MB limit
-        big_content = b"x" * (21 * 1024 * 1024)
-        resp = client.post(
-            "/api/generate",
-            data={"age_group": "10-13", "style": "fairy_tale"},
-            files={"file": ("huge.pdf", io.BytesIO(big_content), "application/pdf")},
-        )
-        assert resp.status_code == 400
-        assert "20 MB" in resp.json()["detail"]
+        main._firestore_service = None
 
 
 class TestGetStoryEndpoint:
-    def test_not_found(self, client):
+    def test_not_found(self, client, mock_fs):
+        import main
+        main._firestore_service = mock_fs
+
         resp = client.get("/api/stories/nonexistent")
         assert resp.status_code == 404
 
-    def test_after_generate(self, client):
+        main._firestore_service = None
+
+    def test_returns_story(self, client, mock_fs):
         import main
 
-        main._story_cache["cached-id"] = {
-            "id": "cached-id",
-            "title": "Cached Story",
+        mock_fs.get_story_by_id.return_value = {
+            "id": "story-123",
+            "title": "Test Story",
             "scenes": [{"text": "Hello"}],
             "createdAt": "2024-01-01T00:00:00Z",
         }
+        main._firestore_service = mock_fs
 
-        resp = client.get("/api/stories/cached-id")
+        resp = client.get("/api/stories/story-123")
         assert resp.status_code == 200
-        assert resp.json()["title"] == "Cached Story"
+        assert resp.json()["title"] == "Test Story"
+
+        main._firestore_service = None
+
+
+class TestVoteEndpoint:
+    def test_vote_on_story(self, client, mock_fs):
+        import main
+
+        mock_fs.get_story_by_id.return_value = {"id": "story-1", "title": "Story"}
+        mock_fs.vote_on_story.return_value = {
+            "upvotes": 1,
+            "downvotes": 0,
+            "userVote": "up",
+            "flaggedForRegen": False,
+        }
+        main._firestore_service = mock_fs
+
+        resp = client.post(
+            "/api/stories/story-1/vote",
+            json={"vote": "up"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["upvotes"] == 1
+
+        main._firestore_service = None
+
+    def test_vote_invalid_value(self, client, mock_fs):
+        import main
+        main._firestore_service = mock_fs
+
+        resp = client.post(
+            "/api/stories/story-1/vote",
+            json={"vote": "invalid"},
+        )
+
+        assert resp.status_code == 400
+
+        main._firestore_service = None
+
+    def test_vote_on_nonexistent_story(self, client, mock_fs):
+        import main
+
+        mock_fs.get_story_by_id.return_value = None
+        main._firestore_service = mock_fs
+
+        resp = client.post(
+            "/api/stories/nonexistent/vote",
+            json={"vote": "up"},
+        )
+
+        assert resp.status_code == 404
+
+        main._firestore_service = None
+
+
+class TestTopPapersEndpoint:
+    def test_returns_top_papers(self, client, mock_fs):
+        import main
+
+        mock_fs.get_top_papers_by_field.return_value = {
+            "Physics": [{"id": "p1", "title": "Physics Story", "upvotes": 10}],
+        }
+        main._firestore_service = mock_fs
+        main._top_papers_cache = None
+
+        resp = client.get("/api/top-papers")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "Physics" in data
+
+        main._firestore_service = None
 
 
 # ---------------------------------------------------------------------------
