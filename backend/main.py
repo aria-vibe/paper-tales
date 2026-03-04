@@ -279,8 +279,19 @@ async def _run_pipeline_task(
         parsed_paper = session.state.get(STATE_PAPER_TEXT, "")
         logger.info("Pipeline complete: parsed_paper=%d chars, final_story=%d chars, total_ms=%d",
                      len(str(parsed_paper)), len(str(raw_story)), pipeline_elapsed_ms)
-        if len(str(parsed_paper)) < 100:
-            logger.warning("Paper parser produced minimal output: %s", str(parsed_paper)[:500])
+        parsed_paper_len = len(str(parsed_paper))
+        if parsed_paper_len < 500:
+            logger.error(
+                "Paper parser output too short (%d chars) — paper was not fetched properly. Full output:\n%s",
+                parsed_paper_len, str(parsed_paper),
+            )
+            js.fail_job(job_id, f"Paper content could not be fetched properly ({parsed_paper_len} chars extracted).")
+            return
+        if parsed_paper_len < 1000:
+            logger.warning(
+                "Paper parser produced short output (%d chars) — paper may not have been fetched properly. Full output:\n%s",
+                parsed_paper_len, str(parsed_paper),
+            )
 
         if not raw_story:
             js.fail_job(job_id, "Pipeline did not produce a final story.")
