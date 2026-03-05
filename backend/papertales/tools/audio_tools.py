@@ -89,4 +89,12 @@ def synthesize_speech(
         }
 
     except Exception as exc:
-        return {"error": f"TTS synthesis failed: {exc}"}
+        error_str = str(exc).lower()
+        rate_limited = any(
+            kw in error_str
+            for kw in ("429", "resource_exhausted", "rate limit", "quota")
+        )
+        result = {"error": f"TTS synthesis failed: {exc}"}
+        if rate_limited:
+            result["rate_limited"] = True
+        return result

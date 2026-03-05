@@ -4,12 +4,12 @@ from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 from google.genai import types
 
-from ..config import MODEL_GEMINI_FLASH, STATE_FACTCHECK
+from ..config import MODEL_GEMINI_FLASH_LITE, STATE_FACTCHECK
 from ..tools.factcheck_tools import compare_semantic_similarity, extract_key_claims
 
 fact_checker = LlmAgent(
     name="fact_checker",
-    model=MODEL_GEMINI_FLASH,
+    model=MODEL_GEMINI_FLASH_LITE,
     description="Verifies that the generated story accurately represents the source paper.",
     generate_content_config=types.GenerateContentConfig(
         automatic_function_calling=types.AutomaticFunctionCallingConfig(
