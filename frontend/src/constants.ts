@@ -32,6 +32,23 @@ export const FIELD_ABBR: Record<string, string> = {
   Other: "OT",
 };
 
+export const FIELD_ICONS: Record<string, string> = {
+  Biology: "/icons/biology.png",
+  Chemistry: "/icons/chemistry.png",
+  "Computer Science": "/icons/computer-science.png",
+  "Earth Science": "/icons/earth-science.png",
+  Economics: "/icons/economics.png",
+  Engineering: "/icons/engineering.png",
+  "Environmental Science": "/icons/environmental-science.png",
+  Mathematics: "/icons/mathematics.png",
+  Medicine: "/icons/medicine.png",
+  Neuroscience: "/icons/neuroscience.png",
+  Physics: "/icons/physics.png",
+  Psychology: "/icons/psychology.png",
+  "Social Science": "/icons/social-science.png",
+  Other: "/icons/other.png",
+};
+
 export const FLOAT_POSITIONS: React.CSSProperties[] = [
   { top: "8%", left: "3%" },
   { top: "4%", left: "20%" },

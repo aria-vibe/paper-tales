@@ -735,12 +735,12 @@ class TestGetUserVote:
 
 class TestGetTopPapersByField:
     def test_returns_grouped_results(self, service, mock_firestore):
-        # Mock query chain
         mock_doc = MagicMock()
         mock_doc.id = "story-abc"
         mock_doc.to_dict.return_value = {
             "title": "Quantum Fun",
             "paper_title": "Quantum Paper",
+            "field_of_study": "Physics",
             "upvotes": 10,
             "downvotes": 2,
             "age_group": "10-13",
@@ -749,7 +749,6 @@ class TestGetTopPapersByField:
         }
 
         query = MagicMock()
-        query.where.return_value = query
         query.order_by.return_value = query
         query.limit.return_value = query
         query.stream.return_value = [mock_doc]
@@ -757,19 +756,19 @@ class TestGetTopPapersByField:
 
         result = service.get_top_papers_by_field(limit_per_field=3)
 
-        # Should have entries for each field that has papers
         assert isinstance(result, dict)
-        # Each field with results should have our mock doc
-        for field, papers in result.items():
-            assert papers[0]["id"] == "story-abc"
-            assert papers[0]["upvotes"] == 10
+        assert "Physics" in result
+        assert result["Physics"][0]["id"] == "story-abc"
+        assert result["Physics"][0]["upvotes"] == 10
 
-    def test_filters_zero_upvotes(self, service, mock_firestore):
+    def test_falls_back_to_recent_when_no_upvotes(self, service, mock_firestore):
+        """When no stories have upvotes, falls back to recent stories."""
         mock_doc = MagicMock()
-        mock_doc.id = "zero-votes"
+        mock_doc.id = "recent-story"
         mock_doc.to_dict.return_value = {
-            "title": "Unpopular",
+            "title": "Fresh Story",
             "paper_title": "Paper",
+            "field_of_study": "Biology",
             "upvotes": 0,
             "downvotes": 0,
             "age_group": "6-9",
@@ -777,16 +776,34 @@ class TestGetTopPapersByField:
             "archive": "arXiv",
         }
 
+        # First query (upvotes) returns doc with 0 upvotes → breaks immediately
+        # Second query (created_at fallback) returns the same doc
+        upvotes_query = MagicMock()
+        upvotes_query.order_by.return_value = upvotes_query
+        upvotes_query.limit.return_value = upvotes_query
+        upvotes_query.stream.return_value = [mock_doc]
+
+        recency_query = MagicMock()
+        recency_query.order_by.return_value = recency_query
+        recency_query.limit.return_value = recency_query
+        recency_query.stream.return_value = [mock_doc]
+
+        mock_firestore.collection.return_value = upvotes_query
+
+        result = service.get_top_papers_by_field()
+        # Fallback should return the recent story
+        assert "Biology" in result
+        assert result["Biology"][0]["id"] == "recent-story"
+
+    def test_empty_when_no_stories(self, service, mock_firestore):
         query = MagicMock()
-        query.where.return_value = query
         query.order_by.return_value = query
         query.limit.return_value = query
-        query.stream.return_value = [mock_doc]
+        query.stream.return_value = []
         mock_firestore.collection.return_value = query
 
         result = service.get_top_papers_by_field()
-        # Should be empty since all papers have 0 upvotes
-        assert all(len(papers) == 0 for papers in result.values()) if result else True
+        assert result == {}
 
 
 # ---------------------------------------------------------------------------

@@ -232,36 +232,56 @@ class FirestoreService:
     # ------------------------------------------------------------------
 
     def get_top_papers_by_field(self, limit_per_field: int = 3) -> dict[str, list[dict]]:
-        """Query top upvoted stories grouped by field of study."""
-        from papertales.config import FIELD_TAXONOMY
+        """Query top stories grouped by field of study.
 
-        result = {}
-        for field in FIELD_TAXONOMY:
-            query = (
-                self._db.collection(STORIES_COLLECTION)
-                .where("field_of_study", "==", field)
-                .order_by("upvotes", direction=firestore.Query.DESCENDING)
-                .limit(limit_per_field)
-            )
+        Uses a single query (no composite index required) and groups in Python.
+        Falls back to recent stories if none have upvotes.
+        """
+        def _doc_to_entry(doc, data):
+            return {
+                "id": doc.id,
+                "title": data.get("title", ""),
+                "paperTitle": data.get("paper_title", ""),
+                "upvotes": data.get("upvotes", 0),
+                "downvotes": data.get("downvotes", 0),
+                "ageGroup": data.get("age_group", ""),
+                "style": data.get("style", ""),
+                "archive": data.get("archive", ""),
+            }
 
-            papers = []
-            for doc in query.stream():
-                data = doc.to_dict()
-                if data.get("upvotes", 0) <= 0:
-                    continue
-                papers.append({
-                    "id": doc.id,
-                    "title": data.get("title", ""),
-                    "paperTitle": data.get("paper_title", ""),
-                    "upvotes": data.get("upvotes", 0),
-                    "downvotes": data.get("downvotes", 0),
-                    "ageGroup": data.get("age_group", ""),
-                    "style": data.get("style", ""),
-                    "archive": data.get("archive", ""),
-                })
+        # Try upvoted stories first (single-field index, no composite needed)
+        query = (
+            self._db.collection(STORIES_COLLECTION)
+            .order_by("upvotes", direction=firestore.Query.DESCENDING)
+            .limit(limit_per_field * 14)
+        )
 
-            if papers:
-                result[field] = papers
+        result: dict[str, list[dict]] = {}
+        for doc in query.stream():
+            data = doc.to_dict()
+            if data.get("upvotes", 0) <= 0:
+                break  # Sorted desc, so no more upvoted stories
+            field = data.get("field_of_study", "Other")
+            bucket = result.setdefault(field, [])
+            if len(bucket) < limit_per_field:
+                bucket.append(_doc_to_entry(doc, data))
+
+        if result:
+            return result
+
+        # Fallback: show recent stories regardless of upvotes
+        query = (
+            self._db.collection(STORIES_COLLECTION)
+            .order_by("created_at", direction=firestore.Query.DESCENDING)
+            .limit(limit_per_field * 14)
+        )
+
+        for doc in query.stream():
+            data = doc.to_dict()
+            field = data.get("field_of_study", "Other")
+            bucket = result.setdefault(field, [])
+            if len(bucket) < limit_per_field:
+                bucket.append(_doc_to_entry(doc, data))
 
         return result
 
@@ -458,6 +478,7 @@ class FirestoreService:
             "paperTitle": data.get("paper_title", ""),
             "authors": data.get("authors", ""),
             "fieldOfStudy": data.get("field_of_study", "Other"),
+            "sourceUrl": data.get("source_url", ""),
             "version": version,
             "upvotes": data.get("upvotes", 0),
             "downvotes": data.get("downvotes", 0),

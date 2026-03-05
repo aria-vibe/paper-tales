@@ -71,6 +71,7 @@ backend/test_story_generation_online.py
 *.png
 *.jpg
 !frontend/public/*
+!frontend/public/**/*
 
 # Claude
 .claude/

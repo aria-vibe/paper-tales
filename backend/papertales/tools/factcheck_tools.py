@@ -1,11 +1,31 @@
 """Tools for fact-checking generated stories against source papers."""
 
+import logging
 import math
 
 from google import genai
+from google.api_core.exceptions import GoogleAPIError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+logger = logging.getLogger(__name__)
 
 EMBEDDING_MODEL = "gemini-embedding-001"
 CHUNK_SIZE = 500  # words per chunk
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=2, max=60),
+    retry=retry_if_exception_type((GoogleAPIError, ConnectionError)),
+    before_sleep=lambda rs: logger.warning(
+        "Embedding API retry attempt %d after %s", rs.attempt_number, rs.outcome.exception()
+    ),
+    reraise=True,
+)
+def _embed_content(client: genai.Client, text: str) -> list[float]:
+    """Embed a single text chunk with retry on transient errors."""
+    result = client.models.embed_content(model=EMBEDDING_MODEL, contents=text)
+    return result.embeddings[0].values
 
 
 def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE) -> list[str]:
@@ -64,23 +84,16 @@ def compare_semantic_similarity(
     try:
         client = genai.Client()
 
-        # Chunk and embed both texts
+        # Chunk and embed both texts (with retry on transient errors)
         original_chunks = _chunk_text(original_text)
         generated_chunks = _chunk_text(generated_text)
 
-        original_embeddings = []
-        for chunk in original_chunks:
-            result = client.models.embed_content(
-                model=EMBEDDING_MODEL, contents=chunk
-            )
-            original_embeddings.append(result.embeddings[0].values)
-
-        generated_embeddings = []
-        for chunk in generated_chunks:
-            result = client.models.embed_content(
-                model=EMBEDDING_MODEL, contents=chunk
-            )
-            generated_embeddings.append(result.embeddings[0].values)
+        original_embeddings = [
+            _embed_content(client, chunk) for chunk in original_chunks
+        ]
+        generated_embeddings = [
+            _embed_content(client, chunk) for chunk in generated_chunks
+        ]
 
         # Average the chunk embeddings
         avg_original = _average_vectors(original_embeddings)

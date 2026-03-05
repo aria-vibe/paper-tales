@@ -36,7 +36,6 @@ function GlossaryText({
   const terms = Object.keys(glossary);
   if (terms.length === 0) return <>{text}</>;
 
-  // Build regex that matches any glossary term (case-insensitive, whole word)
   const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const regex = new RegExp(`\\b(${escaped.join("|")})\\b`, "gi");
 
@@ -47,7 +46,6 @@ function GlossaryText({
     if (match.index > lastIndex) {
       parts.push({ text: text.slice(lastIndex, match.index) });
     }
-    // Find original-case term key
     const matchedKey =
       terms.find((t) => t.toLowerCase() === match![0].toLowerCase()) ??
       match[0];
@@ -75,25 +73,39 @@ function GlossaryText({
 
 export function StoryViewer({ story, getToken }: StoryViewerProps) {
   const [currentScene, setCurrentScene] = useState(0);
+  const stageRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef(0);
   const touchDeltaX = useRef(0);
   const isDragging = useRef(false);
-  const total = story.scenes.length;
   const glossary = story.glossary ?? {};
   const difficulty = getDifficultyFromAccuracy(story.factCheck?.accuracy_rating);
 
+  const allScenes = [
+    ...story.scenes,
+    ...(story.whatWeLearned
+      ? [{ text: story.whatWeLearned, audioBase64: story.conclusionAudioBase64 }]
+      : []),
+  ];
+  const total = allScenes.length;
+
+  const pauseAllAudio = useCallback(() => {
+    stageRef.current
+      ?.querySelectorAll("audio")
+      .forEach((a) => { a.pause(); });
+  }, []);
+
   const goTo = useCallback(
     (index: number) => {
+      pauseAllAudio();
       setCurrentScene(Math.max(0, Math.min(index, total - 1)));
     },
-    [total]
+    [total, pauseAllAudio]
   );
 
   const goNext = useCallback(() => goTo(currentScene + 1), [currentScene, goTo]);
   const goPrev = useCallback(() => goTo(currentScene - 1), [currentScene, goTo]);
 
-  // Keyboard navigation
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "ArrowRight") goNext();
@@ -103,7 +115,6 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [goNext, goPrev]);
 
-  // Touch handlers for swipe
   function onTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.touches[0].clientX;
     touchDeltaX.current = 0;
@@ -115,7 +126,9 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
     touchDeltaX.current = e.touches[0].clientX - touchStartX.current;
     if (trackRef.current) {
       const base = -(currentScene * 100);
-      const pct = (touchDeltaX.current / trackRef.current.parentElement!.clientWidth) * 100;
+      const pct =
+        (touchDeltaX.current / trackRef.current.parentElement!.clientWidth) *
+        100;
       trackRef.current.style.transition = "none";
       trackRef.current.style.transform = `translateX(${base + pct}%)`;
     }
@@ -133,10 +146,25 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
     touchDeltaX.current = 0;
   }
 
+  const isConclusion =
+    story.whatWeLearned && currentScene === allScenes.length - 1;
+
   return (
     <article className="story-viewer">
+      {/* Header */}
       <header className="story-header">
-        <h1>{story.title}</h1>
+        <div className="story-title-row">
+          <h1>{story.title}</h1>
+          {story.titleAudioBase64 && (
+            <audio
+              controls
+              src={`data:audio/mpeg;base64,${story.titleAudioBase64}`}
+              className="title-audio-inline"
+            >
+              Your browser does not support the audio element.
+            </audio>
+          )}
+        </div>
         <div className="story-meta-row">
           <span className="story-meta-tag">
             {story.style.replace("_", " ")}
@@ -152,16 +180,15 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
           </span>
         </div>
         {story.paperTitle && (
-          <p className="story-paper-title">{story.paperTitle}</p>
-        )}
-        {story.titleAudioBase64 && (
-          <audio
-            controls
-            src={`data:audio/mpeg;base64,${story.titleAudioBase64}`}
-            className="scene-audio title-audio"
-          >
-            Your browser does not support the audio element.
-          </audio>
+          <p className="story-paper-title">
+            {story.sourceUrl ? (
+              <a href={story.sourceUrl} target="_blank" rel="noopener noreferrer">
+                {story.paperTitle}
+              </a>
+            ) : (
+              story.paperTitle
+            )}
+          </p>
         )}
         {getToken && (
           <VoteButtons
@@ -174,43 +201,65 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
         )}
       </header>
 
-      {/* Scene carousel */}
-      <div className="scene-carousel">
-        <div className="scene-counter">
-          {currentScene + 1} / {total}
-        </div>
-
-        <div
-          className="scene-viewport"
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
+      {/* Storybook page */}
+      <div
+        ref={stageRef}
+        className="book-stage"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        {/* Side arrows */}
+        <button
+          className="book-arrow book-arrow-left"
+          onClick={goPrev}
+          disabled={currentScene === 0}
+          aria-label="Previous page"
         >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path
+              d="M12.5 15L7.5 10L12.5 5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+
+        <div className="book-page-area">
           <div
             ref={trackRef}
-            className="scene-track"
+            className="book-track"
             style={{ transform: `translateX(-${currentScene * 100}%)` }}
           >
-            {story.scenes.map((s, i) => (
-              <div key={i} className="scene-slide">
-                <div className="scene-card">
-                  <div className="scene-layout">
+            {allScenes.map((s, i) => {
+              const isConcl =
+                story.whatWeLearned && i === allScenes.length - 1;
+              return (
+                <div key={i} className="book-page-slide">
+                  <div className={`book-page${isConcl ? " book-page-conclusion" : ""}`}>
+                    {/* Image */}
                     {(s.imageBase64 || s.imageUrl) && (
-                      <div className="scene-image-wrapper">
+                      <div className="book-illustration">
                         <img
                           src={
                             s.imageBase64
                               ? `data:image/png;base64,${s.imageBase64}`
                               : s.imageUrl
                           }
-                          alt={`Scene ${i + 1}`}
-                          className="scene-image"
+                          alt={isConcl ? "What we learned" : `Scene ${i + 1}`}
                           loading={Math.abs(i - currentScene) > 1 ? "lazy" : "eager"}
                         />
                       </div>
                     )}
-                    <div className="scene-content">
-                      <p className="scene-text">
+
+                    {/* Text */}
+                    <div className="book-text-block">
+                      {isConcl && (
+                        <div className="book-conclusion-badge">What We Learned</div>
+                      )}
+                      <p className="book-text">
                         <GlossaryText text={s.text} glossary={glossary} />
                       </p>
                       {(s.audioBase64 || s.audioUrl) && (
@@ -221,7 +270,7 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
                               ? `data:audio/mpeg;base64,${s.audioBase64}`
                               : s.audioUrl
                           }
-                          className="scene-audio"
+                          className="book-audio"
                         >
                           Your browser does not support the audio element.
                         </audio>
@@ -229,56 +278,55 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
-        {/* Navigation */}
-        <div className="scene-nav">
-          <button
-            className="scene-nav-btn"
-            onClick={goPrev}
-            disabled={currentScene === 0}
-            aria-label="Previous scene"
-          >
-            {"\u2190"}
-          </button>
-
-          <div className="scene-dots">
-            {story.scenes.map((_, i) => (
-              <button
-                key={i}
-                className={`scene-dot ${i === currentScene ? "active" : ""}`}
-                onClick={() => goTo(i)}
-                aria-label={`Go to scene ${i + 1}`}
-              />
-            ))}
-          </div>
-
-          <button
-            className="scene-nav-btn"
-            onClick={goNext}
-            disabled={currentScene === total - 1}
-            aria-label="Next scene"
-          >
-            {"\u2192"}
-          </button>
-        </div>
+        <button
+          className="book-arrow book-arrow-right"
+          onClick={goNext}
+          disabled={currentScene === total - 1}
+          aria-label="Next page"
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path
+              d="M7.5 5L12.5 10L7.5 15"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
       </div>
 
-      {story.conclusionAudioBase64 && (
-        <footer className="story-conclusion-audio">
-          <p className="conclusion-label">Conclusion</p>
-          <audio
-            controls
-            src={`data:audio/mpeg;base64,${story.conclusionAudioBase64}`}
-            className="scene-audio"
-          >
-            Your browser does not support the audio element.
-          </audio>
-        </footer>
-      )}
+      {/* Page indicator */}
+      <div className="book-footer">
+        <span className="book-page-num">
+          {isConclusion
+            ? "The End"
+            : `Page ${currentScene + 1} of ${total}`}
+        </span>
+        <div className="book-dots">
+          {allScenes.map((_, i) => (
+            <button
+              key={i}
+              className={`book-dot${i === currentScene ? " active" : ""}${
+                story.whatWeLearned && i === allScenes.length - 1
+                  ? " book-dot-end"
+                  : ""
+              }`}
+              onClick={() => goTo(i)}
+              aria-label={
+                story.whatWeLearned && i === allScenes.length - 1
+                  ? "Go to conclusion"
+                  : `Go to page ${i + 1}`
+              }
+            />
+          ))}
+        </div>
+      </div>
     </article>
   );
 }

@@ -25,6 +25,7 @@ export interface Story {
   factCheck?: FactCheck;
   sourceTitle?: string;
   paperTitle?: string;
+  sourceUrl?: string;
   fieldOfStudy?: string;
   authors?: string;
   version?: number;
@@ -33,6 +34,7 @@ export interface Story {
   userVote?: "up" | "down";
   titleAudioBase64?: string;
   conclusionAudioBase64?: string;
+  whatWeLearned?: string;
   createdAt: string;
 }
 

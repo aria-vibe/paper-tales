@@ -495,6 +495,14 @@ a:hover {
   letter-spacing: 0.02em;
 }
 
+.field-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
 .floating-card-field {
   font-size: 0.75rem;
   font-weight: 600;
@@ -879,7 +887,7 @@ a:hover {
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.25;
-  margin-bottom: 12px;
+  margin: 0;
 }
 
 .story-meta-row {
@@ -915,6 +923,19 @@ a:hover {
   font-style: italic;
 }
 
+.story-paper-title a {
+  color: var(--text-tertiary);
+  text-decoration: underline;
+  text-decoration-color: var(--border-color);
+  text-underline-offset: 3px;
+  transition: color var(--transition-fast), text-decoration-color var(--transition-fast);
+}
+
+.story-paper-title a:hover {
+  color: var(--primary);
+  text-decoration-color: var(--primary);
+}
+
 /* Difficulty badges */
 .difficulty-easy {
   background: rgba(34, 197, 94, 0.1);
@@ -947,168 +968,211 @@ a:hover {
   display: none;
 }
 
-/* --- Scene Carousel --- */
-.scene-carousel {
-  position: relative;
-}
-
-.scene-counter {
-  text-align: center;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-tertiary);
-  margin-bottom: 12px;
-  letter-spacing: 0.04em;
-}
-
-.scene-viewport {
-  overflow: hidden;
-  border-radius: var(--radius-md);
-}
-
-.scene-track {
+/* --- Title Row --- */
+.story-title-row {
   display: flex;
-  transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.title-audio-inline {
+  height: 32px;
+  width: 260px;
+  flex-shrink: 0;
+  border-radius: 16px;
+}
+
+/* --- Book Stage (arrows + page) --- */
+.book-stage {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+.book-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-md);
+}
+
+.book-arrow-left {
+  left: -22px;
+}
+
+.book-arrow-right {
+  right: -22px;
+}
+
+.book-arrow:hover:not(:disabled) {
+  background: var(--primary);
+  color: #fff;
+  transform: translateY(-50%) scale(1.08);
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.35);
+}
+
+.book-arrow:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --- Page Area --- */
+.book-page-area {
+  flex: 1;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+}
+
+.book-track {
+  display: flex;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
 
-.scene-slide {
+.book-page-slide {
+  width: 100%;
   min-width: 100%;
   flex-shrink: 0;
-  padding: 0 4px;
 }
 
-.scene-card {
+/* --- Individual Page --- */
+.book-page {
   background: var(--bg-primary);
   border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  padding: 24px;
-  min-height: 320px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
 }
 
-.scene-layout {
+.book-page-conclusion {
+  border-color: var(--primary);
+  border-width: 2px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary) 4%, var(--bg-primary)) 0%,
+    var(--bg-primary) 100%
+  );
+}
+
+/* --- Illustration --- */
+.book-illustration {
+  width: 100%;
+  max-height: 480px;
+  overflow: hidden;
   display: flex;
-  gap: 28px;
-  width: 100%;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
 }
 
-.scene-image-wrapper {
-  flex: 0 0 45%;
-  max-width: 45%;
-}
-
-.scene-image {
+.book-illustration img {
   width: 100%;
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
+  max-height: 480px;
+  object-fit: contain;
   display: block;
 }
 
-.scene-content {
-  flex: 1;
-  min-width: 0;
+/* --- Text Block --- */
+.book-text-block {
+  padding: 28px 32px 24px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  gap: 16px;
 }
 
-.scene-text {
-  font-size: 1.05rem;
-  line-height: 1.8;
+.book-conclusion-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: var(--primary-soft);
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+.book-text {
+  font-size: 1.1rem;
+  line-height: 1.9;
   color: var(--text-primary);
 }
 
-.scene-audio {
+.book-audio {
   width: 100%;
-  margin-top: 16px;
+  height: 36px;
   border-radius: var(--radius-sm);
 }
 
-.title-audio {
+/* --- Footer (page num + dots) --- */
+.book-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   margin-top: 12px;
-  max-width: 360px;
 }
 
-.story-conclusion-audio {
-  text-align: center;
-  padding: 20px 0 8px;
-}
-
-.conclusion-label {
-  font-size: 0.85rem;
+.book-page-num {
+  font-size: 0.82rem;
   font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
 }
 
-.story-conclusion-audio .scene-audio {
-  max-width: 360px;
-  margin: 0 auto;
-}
-
-/* --- Scene Navigation --- */
-.scene-nav {
+.book-dots {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 20px;
-}
-
-.scene-nav-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 1.1rem;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  flex-shrink: 0;
-}
-
-.scene-nav-btn:hover:not(:disabled) {
-  border-color: var(--primary);
-  color: var(--primary);
-  background: var(--primary-soft);
-}
-
-.scene-nav-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.scene-dots {
-  display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 
-.scene-dot {
-  width: 10px;
-  height: 10px;
+.book-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   border: none;
+  padding: 0;
   background: var(--border-color);
   cursor: pointer;
-  padding: 0;
   transition: all var(--transition-fast);
 }
 
-.scene-dot.active {
+.book-dot.active {
   background: var(--primary);
-  transform: scale(1.3);
+  width: 24px;
+  border-radius: 999px;
 }
 
-.scene-dot:hover:not(.active) {
+.book-dot:hover:not(.active) {
   background: var(--text-tertiary);
+}
+
+.book-dot-end {
+  background: color-mix(in srgb, var(--primary) 30%, var(--border-color));
+}
+
+.book-dot-end.active {
+  background: var(--primary);
 }
 
 /* --- Glossary Tooltip --- */
@@ -1211,7 +1275,7 @@ a:hover {
    Story Page
    ============================================================ */
 .story-page {
-  max-width: 960px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: 80px 24px 48px;
   animation: fadeSlideIn 0.5s ease-out;
@@ -1384,23 +1448,44 @@ a:hover {
     font-size: 1.4rem;
   }
 
-  .scene-layout {
+  .story-title-row {
     flex-direction: column;
-    gap: 16px;
+    align-items: flex-start;
+    gap: 8px;
   }
 
-  .scene-image-wrapper {
-    flex: none;
-    max-width: 100%;
+  .title-audio-inline {
+    width: 180px;
   }
 
-  .scene-card {
-    padding: 16px;
-    min-height: auto;
+  .book-arrow {
+    width: 36px;
+    height: 36px;
   }
 
-  .scene-text {
-    font-size: 0.95rem;
+  .book-arrow-left {
+    left: -4px;
+  }
+
+  .book-arrow-right {
+    right: -4px;
+  }
+
+  .book-illustration {
+    max-height: 320px;
+  }
+
+  .book-illustration img {
+    max-height: 320px;
+  }
+
+  .book-text-block {
+    padding: 20px 18px 18px;
+  }
+
+  .book-text {
+    font-size: 0.98rem;
+    line-height: 1.75;
   }
 
   .glossary-word::after {

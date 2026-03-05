@@ -159,8 +159,8 @@ function ProgressSection({
   totalStages?: number | null;
 }) {
   const hasStageInfo = status === "processing" && currentStage != null && totalStages != null && totalStages > 0;
-  const progressPct = hasStageInfo ? Math.round((currentStage! / totalStages!) * 100) : 0;
-  const showBar = hasStageInfo && progressPct > 0;
+  const progressPct = hasStageInfo ? Math.round(((currentStage! - 0.5) / totalStages!) * 100) : 0;
+  const showBar = hasStageInfo;
 
   return (
     <div className="uploader-progress">

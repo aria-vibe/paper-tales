@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { TopPapersResponse } from "../types";
 import { getTopPapers } from "../services/api";
-import { FIELD_COLORS, FIELD_ABBR, FLOAT_POSITIONS } from "../constants";
+import { FIELD_COLORS, FIELD_ICONS, FLOAT_POSITIONS } from "../constants";
 
 interface TopPapersProps {
   getToken: () => Promise<string>;
@@ -55,7 +55,7 @@ export function TopPapers({ getToken }: TopPapersProps) {
       {papers.map((paper, i) => {
         const pos = FLOAT_POSITIONS[i % FLOAT_POSITIONS.length];
         const color = FIELD_COLORS[paper.field] || "#9ca3af";
-        const abbr = FIELD_ABBR[paper.field] || "OT";
+        const icon = FIELD_ICONS[paper.field] || FIELD_ICONS["Other"];
         const animClass = ANIM_CLASSES[i % ANIM_CLASSES.length];
         const delay = `${(i * 0.6).toFixed(1)}s`;
         const duration = `${6 + (i % 4)}s`;
@@ -74,12 +74,13 @@ export function TopPapers({ getToken }: TopPapersProps) {
             }
           >
             <div className="floating-card-header">
-              <span
-                className="field-badge"
-                style={{ backgroundColor: color }}
-              >
-                {abbr}
-              </span>
+              <img
+                className="field-icon"
+                src={icon}
+                alt={paper.field}
+                width={28}
+                height={28}
+              />
               <span className="floating-card-field" style={{ color }}>
                 {paper.field}
               </span>

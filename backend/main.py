@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -416,17 +417,27 @@ async def generate_story(
             detail="You already have a story being generated. Please wait for it to finish.",
         )
 
-    # Create job and launch pipeline in background
+    # Create job and launch pipeline in a dedicated thread with its own event
+    # loop so that blocking tool functions (TTS, embeddings) don't starve the
+    # main event loop that serves poll requests.
     job = js.create_job(story_id, uid, normalized_url, age_group, style)
-    asyncio.create_task(_run_pipeline_task(
-        job_id=story_id,
-        uid=uid,
-        normalized_url=normalized_url,
-        archive_name=archive_name,
-        paper_id=paper_id,
-        age_group=age_group,
-        style=style,
-    ))
+
+    def _run_pipeline_in_thread() -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_run_pipeline_task(
+                job_id=story_id,
+                uid=uid,
+                normalized_url=normalized_url,
+                archive_name=archive_name,
+                paper_id=paper_id,
+                age_group=age_group,
+                style=style,
+            ))
+        finally:
+            loop.close()
+
+    threading.Thread(target=_run_pipeline_in_thread, daemon=True).start()
 
     return {
         "jobId": story_id,
@@ -555,8 +566,12 @@ async def get_top_papers(user_info: UserInfo = Depends(verify_firebase_token)):
     if _top_papers_cache is not None and (now - _top_papers_cache_time) < TOP_PAPERS_TTL:
         return _top_papers_cache
 
-    fs = _get_firestore_service()
-    result = fs.get_top_papers_by_field(limit_per_field=3)
+    try:
+        fs = _get_firestore_service()
+        result = fs.get_top_papers_by_field(limit_per_field=3)
+    except Exception as exc:
+        logger.exception("Failed to fetch top papers")
+        raise HTTPException(status_code=503, detail="Top papers temporarily unavailable.") from exc
 
     _top_papers_cache = result
     _top_papers_cache_time = now
