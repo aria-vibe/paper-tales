@@ -1,6 +1,5 @@
 import type { User } from "firebase/auth";
 import { PaperUploader } from "../components/PaperUploader";
-import { LoadingSpinner } from "../components/LoadingSpinner";
 import { StoryViewer } from "../components/StoryViewer";
 import { TopPapers } from "../components/TopPapers";
 import { useStoryGeneration } from "../hooks/useStoryGeneration";
@@ -41,19 +40,13 @@ export function Home({ getToken }: HomeProps) {
             onSubmit={generate}
             disabled={status === "uploading" || status === "processing"}
             getToken={getToken}
+            status={status}
+            stageLabel={stageLabel}
+            currentStage={currentStage}
+            totalStages={totalStages}
+            error={error}
+            onDismissError={reset}
           />
-          <LoadingSpinner status={status} stageLabel={stageLabel} currentStage={currentStage} totalStages={totalStages} />
-          {error && (
-            <div className="error-banner" role="alert">
-              <div className="error-banner-body">
-                <span className="error-banner-icon">!</span>
-                <p className="error-banner-text">{error}</p>
-              </div>
-              <div className="error-banner-actions">
-                <button className="error-banner-retry" onClick={reset}>Dismiss</button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </main>

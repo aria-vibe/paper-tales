@@ -1,11 +1,17 @@
 import { useState, useEffect } from "react";
-import type { AgeGroup, GenerationRequest, QuotaInfo, StoryStyle } from "../types";
+import type { AgeGroup, GenerationRequest, GenerationStatus, QuotaInfo, StoryStyle } from "../types";
 import { getQuota } from "../services/api";
 
 interface PaperUploaderProps {
   onSubmit: (request: GenerationRequest) => void;
   disabled?: boolean;
   getToken: () => Promise<string>;
+  status: GenerationStatus;
+  stageLabel?: string | null;
+  currentStage?: number | null;
+  totalStages?: number | null;
+  error?: string | null;
+  onDismissError?: () => void;
 }
 
 const AGE_GROUPS: { value: AgeGroup; label: string }[] = [
@@ -21,7 +27,7 @@ const STORY_STYLES: { value: StoryStyle; label: string }[] = [
   { value: "comic_book", label: "Comic Book" },
 ];
 
-export function PaperUploader({ onSubmit, disabled, getToken }: PaperUploaderProps) {
+export function PaperUploader({ onSubmit, disabled, getToken, status, stageLabel, currentStage, totalStages, error, onDismissError }: PaperUploaderProps) {
   const [paperUrl, setPaperUrl] = useState("");
   const [ageGroup, setAgeGroup] = useState<AgeGroup>("10-13");
   const [style, setStyle] = useState<StoryStyle>("adventure");
@@ -94,24 +100,92 @@ export function PaperUploader({ onSubmit, disabled, getToken }: PaperUploaderPro
         </fieldset>
       </div>
 
-      <button
-        type="submit"
-        className="uploader-submit"
-        disabled={disabled || !paperUrl || quotaExhausted}
-      >
-        Generate Story
-      </button>
+      {status === "uploading" || status === "processing" ? (
+        <ProgressSection
+          status={status}
+          stageLabel={stageLabel}
+          currentStage={currentStage}
+          totalStages={totalStages}
+        />
+      ) : (
+        <>
+          {error ? (
+            <div className="uploader-error" role="alert">
+              <div className="uploader-error-body">
+                <span className="uploader-error-icon">!</span>
+                <p className="uploader-error-text">{error}</p>
+              </div>
+              <button type="button" className="uploader-submit" onClick={onDismissError}>
+                Try again
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                type="submit"
+                className="uploader-submit"
+                disabled={disabled || !paperUrl || quotaExhausted}
+              >
+                Generate Story
+              </button>
 
-      {quota !== null && (
-        <p className="uploader-quota">
-          {quotaExhausted
-            ? "Daily limit reached. Try again tomorrow."
-            : `${quota.remaining}/${quota.limit} generations remaining today`}
-          {quota.isAnonymous && !quotaExhausted && (
-            <span className="quota-hint"> — sign in for more</span>
+              {quota !== null && (
+                <p className="uploader-quota">
+                  {quotaExhausted
+                    ? "Daily limit reached. Try again tomorrow."
+                    : `${quota.remaining}/${quota.limit} generations remaining today`}
+                  {quota.isAnonymous && !quotaExhausted && (
+                    <span className="quota-hint"> — sign in for more</span>
+                  )}
+                </p>
+              )}
+            </>
           )}
-        </p>
+        </>
       )}
     </form>
+  );
+}
+
+function ProgressSection({
+  status,
+  stageLabel,
+  currentStage,
+  totalStages,
+}: {
+  status: GenerationStatus;
+  stageLabel?: string | null;
+  currentStage?: number | null;
+  totalStages?: number | null;
+}) {
+  const hasStageInfo = status === "processing" && currentStage != null && totalStages != null && totalStages > 0;
+  const progressPct = hasStageInfo ? Math.round((currentStage! / totalStages!) * 100) : 0;
+  const showBar = hasStageInfo && progressPct > 0;
+
+  return (
+    <div className="uploader-progress">
+      {showBar ? (
+        <div className="uploader-progress-bar">
+          <div
+            className="uploader-progress-fill"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      ) : (
+        <div className="uploader-spinner" />
+      )}
+      <p className="uploader-progress-label">
+        {hasStageInfo && stageLabel
+          ? stageLabel
+          : status === "uploading"
+            ? "Uploading paper..."
+            : "Starting generation..."}
+      </p>
+      {showBar && (
+        <span className="uploader-progress-step">
+          Step {currentStage} of {totalStages} &middot; {progressPct}%
+        </span>
+      )}
+    </div>
   );
 }

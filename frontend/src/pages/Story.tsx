@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { StoryViewer } from "../components/StoryViewer";
-import { LoadingSpinner } from "../components/LoadingSpinner";
 import { getStory } from "../services/api";
 import type { Story as StoryType } from "../types";
 
@@ -52,7 +51,10 @@ export function Story({ getToken }: StoryProps) {
   if (!story) {
     return (
       <main className="story-page">
-        <LoadingSpinner status="processing" />
+        <div className="story-loading">
+          <div className="uploader-spinner" />
+          <p className="story-loading-text">Loading story...</p>
+        </div>
       </main>
     );
   }

@@ -717,22 +717,61 @@ a:hover {
 }
 
 /* ============================================================
-   Loading Spinner
+   Inline Progress (replaces submit button during generation)
    ============================================================ */
-.loading-spinner {
-  text-align: center;
-  padding: 32px 16px;
+.uploader-error {
+  margin-top: 16px;
   animation: fadeIn 0.3s ease-out;
 }
 
-.spinner {
-  width: 40px;
-  height: 40px;
+.uploader-error-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-primary));
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+}
+
+.uploader-error-icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--danger);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.uploader-error-text {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.uploader-progress {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.uploader-spinner {
+  width: 36px;
+  height: 36px;
   border: 3px solid var(--border-light);
   border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
-  margin: 0 auto 14px;
 }
 
 @keyframes spin {
@@ -741,9 +780,50 @@ a:hover {
   }
 }
 
-.loading-text {
+.uploader-progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.uploader-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+  background: linear-gradient(
+    90deg,
+    var(--primary) 0%,
+    #7c3aed 50%,
+    var(--primary) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.uploader-progress-label {
+  margin-top: 10px;
+  font-size: 0.9rem;
   color: var(--text-secondary);
-  font-size: 0.95rem;
+  text-align: center;
+}
+
+.uploader-progress-step {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  text-align: center;
 }
 
 /* ============================================================
@@ -1135,6 +1215,21 @@ a:hover {
   margin: 0 auto;
   padding: 80px 24px 48px;
   animation: fadeSlideIn 0.5s ease-out;
+}
+
+.story-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 80px auto 0;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.story-loading-text {
+  margin-top: 12px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  text-align: center;
 }
 
 /* ============================================================

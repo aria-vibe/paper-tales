@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import type { GenerationRequest, GenerationStatus, Story } from "../types";
 import { generateStory, getJobStatus } from "../services/api";
 
-const POLL_INTERVAL = 5_000;
+const POLL_INTERVAL = 10_000;
 
 function friendlyError(err: unknown): string {
   if (err && typeof err === "object" && "response" in err) {
@@ -31,11 +31,11 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
   const [stageLabel, setStageLabel] = useState<string | null>(null);
   const [currentStage, setCurrentStage] = useState<number | null>(null);
   const [totalStages, setTotalStages] = useState<number | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
-      clearInterval(pollRef.current);
+      clearTimeout(pollRef.current);
       pollRef.current = null;
     }
   }, []);
@@ -68,31 +68,36 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
       if (jobResult.totalStages != null) setTotalStages(jobResult.totalStages);
       if (jobResult.stageLabel) setStageLabel(jobResult.stageLabel);
 
-      pollRef.current = setInterval(async () => {
-        try {
-          const freshToken = await getToken();
-          const job = await getJobStatus(jobId, freshToken);
+      function schedulePoll() {
+        pollRef.current = setTimeout(async () => {
+          try {
+            const freshToken = await getToken();
+            const job = await getJobStatus(jobId, freshToken);
 
-          // Update stage fields on every poll
-          if (job.currentStage != null) setCurrentStage(job.currentStage);
-          if (job.totalStages != null) setTotalStages(job.totalStages);
-          if (job.stageLabel) setStageLabel(job.stageLabel);
+            if (job.currentStage != null) setCurrentStage(job.currentStage);
+            if (job.totalStages != null) setTotalStages(job.totalStages);
+            if (job.stageLabel) setStageLabel(job.stageLabel);
 
-          if (job.status === "complete" && job.story) {
-            stopPolling();
-            setStory(job.story);
-            setStatus("complete");
-          } else if (job.status === "error" || job.status === "timed_out") {
-            stopPolling();
-            setError(job.status === "timed_out"
-              ? "Story generation took too long. Please try again."
-              : "Story generation failed. Please try again.");
-            setStatus("error");
+            if (job.status === "complete" && job.story) {
+              pollRef.current = null;
+              setStory(job.story);
+              setStatus("complete");
+            } else if (job.status === "error" || job.status === "timed_out") {
+              pollRef.current = null;
+              setError(job.status === "timed_out"
+                ? "Story generation took too long. Please try again."
+                : "Story generation failed. Please try again.");
+              setStatus("error");
+            } else {
+              schedulePoll();
+            }
+          } catch {
+            // Ignore transient poll errors — schedule next poll
+            schedulePoll();
           }
-        } catch (pollErr) {
-          // Ignore transient poll errors — keep polling
-        }
-      }, POLL_INTERVAL);
+        }, POLL_INTERVAL);
+      }
+      schedulePoll();
     } catch (err: unknown) {
       stopPolling();
       setError(friendlyError(err));
