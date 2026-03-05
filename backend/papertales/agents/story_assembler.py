@@ -11,6 +11,9 @@ story_assembler = LlmAgent(
     name="story_assembler",
     model=MODEL_GEMINI_FLASH,
     description="Assembles the final story package from all generated components.",
+    # Exclude conversation history to avoid inheriting large inline image data
+    # from the story_illustrator agent. All inputs come via state templates.
+    include_contents="none",
     generate_content_config=types.GenerateContentConfig(
         automatic_function_calling=types.AutomaticFunctionCallingConfig(
             disable=True,

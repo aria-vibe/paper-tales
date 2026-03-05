@@ -62,30 +62,36 @@ export function PaperUploader({ onSubmit, disabled, getToken }: PaperUploaderPro
       </p>
 
       <div className="uploader-options">
-        <select
-          value={ageGroup}
-          onChange={(e) => setAgeGroup(e.target.value as AgeGroup)}
-          disabled={disabled}
-          aria-label="Age group"
-        >
-          {AGE_GROUPS.map((ag) => (
-            <option key={ag.value} value={ag.value}>
-              {ag.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={style}
-          onChange={(e) => setStyle(e.target.value as StoryStyle)}
-          disabled={disabled}
-          aria-label="Story style"
-        >
-          {STORY_STYLES.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
-          ))}
-        </select>
+        <fieldset className="option-group" disabled={disabled}>
+          <legend className="option-label">Age group</legend>
+          <div className="option-chips">
+            {AGE_GROUPS.map((ag) => (
+              <button
+                key={ag.value}
+                type="button"
+                className={`option-chip${ageGroup === ag.value ? " option-chip--active" : ""}`}
+                onClick={() => setAgeGroup(ag.value)}
+              >
+                {ag.label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className="option-group" disabled={disabled}>
+          <legend className="option-label">Story style</legend>
+          <div className="option-chips">
+            {STORY_STYLES.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                className={`option-chip${style === s.value ? " option-chip--active" : ""}`}
+                onClick={() => setStyle(s.value)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
       </div>
 
       <button

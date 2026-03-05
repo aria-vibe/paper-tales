@@ -4,6 +4,26 @@ import { generateStory, getJobStatus } from "../services/api";
 
 const POLL_INTERVAL = 5_000;
 
+function friendlyError(err: unknown): string {
+  if (err && typeof err === "object" && "response" in err) {
+    const resp = (err as { response?: { status?: number; data?: { detail?: string } } }).response;
+    const status = resp?.status;
+    const detail = resp?.data?.detail;
+
+    if (status === 409) return detail || "You already have a story being generated.";
+    if (status === 422) return detail || "That URL doesn't look right. Please check it and try again.";
+    if (status === 429) return "Too many requests. Please wait a moment and try again.";
+    if (status === 413) return "That paper is too large to process. Try a shorter one.";
+    if (status && status >= 500) return "Something went wrong on our end. Please try again in a moment.";
+    if (status === 401 || status === 403) return "Your session expired. Please sign in again.";
+  }
+  if (err instanceof Error) {
+    if (err.message === "Network Error") return "Could not reach the server. Check your connection and try again.";
+    if (err.message.includes("timeout")) return "The request timed out. Please try again.";
+  }
+  return "Something unexpected happened. Please try again.";
+}
+
 export function useStoryGeneration(getToken: () => Promise<string>) {
   const [status, setStatus] = useState<GenerationStatus>("idle");
   const [story, setStory] = useState<Story | null>(null);
@@ -64,7 +84,9 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
             setStatus("complete");
           } else if (job.status === "error" || job.status === "timed_out") {
             stopPolling();
-            setError(job.error || "Generation failed");
+            setError(job.status === "timed_out"
+              ? "Story generation took too long. Please try again."
+              : "Story generation failed. Please try again.");
             setStatus("error");
           }
         } catch (pollErr) {
@@ -73,16 +95,7 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
       }, POLL_INTERVAL);
     } catch (err: unknown) {
       stopPolling();
-      // Handle 409 conflict (concurrent job)
-      if (err && typeof err === "object" && "response" in err) {
-        const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } };
-        if (axiosErr.response?.status === 409) {
-          setError(axiosErr.response.data?.detail || "You already have a story being generated.");
-          setStatus("error");
-          return;
-        }
-      }
-      setError(err instanceof Error ? err.message : "Generation failed");
+      setError(friendlyError(err));
       setStatus("error");
     }
   }

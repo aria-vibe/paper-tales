@@ -11,6 +11,7 @@ narrative_designer = LlmAgent(
     name="narrative_designer",
     model=MODEL_GEMINI_FLASH,
     description="Designs the narrative structure and plot for the illustrated story.",
+    include_contents="none",
     generate_content_config=types.GenerateContentConfig(
         automatic_function_calling=types.AutomaticFunctionCallingConfig(
             disable=True,

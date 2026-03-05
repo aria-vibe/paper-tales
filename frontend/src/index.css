@@ -622,31 +622,56 @@ a:hover {
 
 .uploader-options {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  gap: 12px;
   margin-top: 14px;
 }
 
-.uploader-options select {
-  flex: 1;
-  padding: 10px 12px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  outline: none;
-  cursor: pointer;
-  transition: border-color var(--transition-fast);
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 16px;
-  padding-right: 32px;
+.option-group {
+  border: none;
+  margin: 0;
+  padding: 0;
 }
 
-.uploader-options select:focus {
+.option-label {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.option-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.option-chip {
+  padding: 7px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+}
+
+.option-chip:hover:not(:disabled) {
   border-color: var(--primary);
+  color: var(--text-primary);
+}
+
+.option-chip--active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.option-group:disabled .option-chip {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .uploader-submit {
@@ -904,11 +929,62 @@ a:hover {
 /* ============================================================
    Utility
    ============================================================ */
-.error-message {
-  color: var(--danger);
-  text-align: center;
+.error-banner {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-primary));
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+.error-banner-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.error-banner-icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--danger);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.error-banner-text {
+  margin: 0;
+  color: var(--text-primary);
   font-size: 0.9rem;
-  margin-top: 12px;
+  line-height: 1.45;
+}
+
+.error-banner-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.error-banner-retry {
+  padding: 5px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.error-banner-retry:hover {
+  border-color: var(--text-tertiary);
+  color: var(--text-primary);
 }
 
 .btn-secondary {
@@ -991,10 +1067,6 @@ a:hover {
     flex-direction: column;
     min-height: auto;
     padding-top: 0;
-  }
-
-  .uploader-options {
-    flex-direction: column;
   }
 
   .story-viewer {

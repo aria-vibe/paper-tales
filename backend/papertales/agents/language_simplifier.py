@@ -11,6 +11,7 @@ language_simplifier = LlmAgent(
     name="language_simplifier",
     model=MODEL_GEMINI_FLASH,
     description="Simplifies scientific language for the target age group.",
+    include_contents="none",
     generate_content_config=types.GenerateContentConfig(
         automatic_function_calling=types.AutomaticFunctionCallingConfig(
             disable=True,

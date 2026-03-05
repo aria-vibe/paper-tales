@@ -43,7 +43,17 @@ export function Home({ getToken }: HomeProps) {
             getToken={getToken}
           />
           <LoadingSpinner status={status} stageLabel={stageLabel} currentStage={currentStage} totalStages={totalStages} />
-          {error && <p className="error-message">{error}</p>}
+          {error && (
+            <div className="error-banner" role="alert">
+              <div className="error-banner-body">
+                <span className="error-banner-icon">!</span>
+                <p className="error-banner-text">{error}</p>
+              </div>
+              <div className="error-banner-actions">
+                <button className="error-banner-retry" onClick={reset}>Dismiss</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </main>

@@ -11,6 +11,9 @@ fact_checker = LlmAgent(
     name="fact_checker",
     model=MODEL_GEMINI_FLASH_LITE,
     description="Verifies that the generated story accurately represents the source paper.",
+    # Exclude conversation history to avoid inheriting large inline image data
+    # from the story_illustrator agent. All inputs come via state templates.
+    include_contents="none",
     generate_content_config=types.GenerateContentConfig(
         automatic_function_calling=types.AutomaticFunctionCallingConfig(
             disable=True,

@@ -76,6 +76,7 @@ concept_extractor = LlmAgent(
     name="concept_extractor",
     model=MODEL_GEMINI_FLASH_LITE,
     description="Identifies and extracts key scientific concepts from parsed paper text.",
+    include_contents="none",
     instruction=CONCEPT_EXTRACTOR_INSTRUCTION,
     output_key=STATE_CONCEPTS,
 )
