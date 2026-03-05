@@ -61,6 +61,10 @@ htmlcov/
 backend/demo_output/
 backend/test_output/
 
+# Ad-hoc test scripts
+backend/test_story_generation.py
+backend/test_story_generation_online.py
+
 # Media artifacts
 *.wav
 *.mp3

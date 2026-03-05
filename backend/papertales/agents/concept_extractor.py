@@ -2,7 +2,7 @@
 
 from google.adk.agents import LlmAgent
 
-from ..config import MODEL_GEMINI_FLASH, STATE_CONCEPTS
+from ..config import MODEL_GEMINI_FLASH_LITE, STATE_CONCEPTS
 
 CONCEPT_EXTRACTOR_INSTRUCTION = """\
 You are a scientific concept extractor. Analyze the parsed research paper below
@@ -74,7 +74,7 @@ explain these concepts visually. Each should be:
 
 concept_extractor = LlmAgent(
     name="concept_extractor",
-    model=MODEL_GEMINI_FLASH,
+    model=MODEL_GEMINI_FLASH_LITE,
     description="Identifies and extracts key scientific concepts from parsed paper text.",
     instruction=CONCEPT_EXTRACTOR_INSTRUCTION,
     output_key=STATE_CONCEPTS,

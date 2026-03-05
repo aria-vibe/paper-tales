@@ -4,7 +4,7 @@ from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 from google.genai import types
 
-from ..config import MODEL_GEMINI_FLASH, STATE_PAPER_TEXT
+from ..config import MODEL_GEMINI_FLASH_LITE, STATE_PAPER_TEXT
 from ..tools.pdf_tools import fetch_paper_from_url
 
 PAPER_PARSER_INSTRUCTION = """\
@@ -52,7 +52,7 @@ rather than guessing.
 
 paper_parser = LlmAgent(
     name="paper_parser",
-    model=MODEL_GEMINI_FLASH,
+    model=MODEL_GEMINI_FLASH_LITE,
     description="Extracts and structures text content from uploaded research papers.",
     instruction=PAPER_PARSER_INSTRUCTION,
     tools=[

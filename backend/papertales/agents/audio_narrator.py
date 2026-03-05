@@ -1,4 +1,4 @@
-"""Agent 6: Audio Narrator — generates speech from story text using Google Cloud TTS."""
+"""Agent 6: Audio Narrator — generates speech from story text using Gemini TTS."""
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
@@ -30,7 +30,7 @@ Age group: {age_group}
 ## YOUR TASK
 
 1. **Get voice settings**: Call the `get_voice_for_age_group` tool with the age group
-   to determine the right voice and speaking rate.
+   to determine the right voice.
 
 2. **Extract narration text**: Go through the story and extract ONLY the text portions.
    Skip any image descriptions, image markers, or illustration references. Include:
@@ -43,7 +43,6 @@ Age group: {age_group}
    the `synthesize_speech` tool with:
    - The scene's text content
    - The voice_name from step 1
-   - The speaking_rate from step 1
    Add a brief pause marker ("...") between scenes for natural pacing.
 
 4. **Compile results**: Report the narration results in the structured format below.
@@ -63,14 +62,12 @@ Age group: {age_group}
 ### Title
 - Text: [title and tagline text]
 - Voice: [voice_name]
-- Speaking rate: [rate]
 - Audio: [base64 reference or error message]
 - Size: [size_bytes] bytes
 
 ### Scene 1: [Scene Title]
 - Text: [first 50 chars of scene text...]
 - Voice: [voice_name]
-- Speaking rate: [rate]
 - Audio: [base64 reference or error message]
 - Size: [size_bytes] bytes
 
@@ -80,7 +77,6 @@ Age group: {age_group}
 ### Ending
 - Text: [closing text...]
 - Voice: [voice_name]
-- Speaking rate: [rate]
 - Audio: [base64 reference or error message]
 - Size: [size_bytes] bytes
 

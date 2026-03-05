@@ -804,3 +804,4 @@ class TestGcsPathHelpers:
     def test_gcs_audio_path(self, service):
         assert service._gcs_audio_path("abc", 1, 0) == "stories/abc/v1/scene_0_audio.mp3"
         assert service._gcs_audio_path("abc", 2, 3) == "stories/abc/v2/scene_3_audio.mp3"
+

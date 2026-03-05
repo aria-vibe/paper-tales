@@ -24,9 +24,14 @@ from pydantic import BaseModel
 from papertales.auth import UserInfo, verify_firebase_token
 from papertales.config import (
     FIELD_TAXONOMY,
+    STATE_AUDIO,
     STATE_CONCEPTS,
+    STATE_FACTCHECK,
     STATE_FINAL,
+    STATE_NARRATIVE,
     STATE_PAPER_TEXT,
+    STATE_SIMPLIFIED,
+    STATE_STORY,
     STATE_USER_AGE_GROUP,
     STATE_USER_PAPER_URL,
     STATE_USER_STYLE,
@@ -175,6 +180,17 @@ async def _run_pipeline_task(
                 STATE_USER_PAPER_URL: normalized_url,
                 STATE_USER_AGE_GROUP: age_group,
                 STATE_USER_STYLE: style,
+                # Pre-populate intermediate keys so downstream agent
+                # instruction templates don't crash if an upstream agent
+                # produces no text output (e.g. audio_narrator with only
+                # tool calls).
+                STATE_PAPER_TEXT: "",
+                STATE_CONCEPTS: "",
+                STATE_SIMPLIFIED: "",
+                STATE_NARRATIVE: "",
+                STATE_STORY: "",
+                STATE_AUDIO: "",
+                STATE_FACTCHECK: "",
             },
         )
 
@@ -190,9 +206,7 @@ async def _run_pipeline_task(
         trigger = types.Content(
             role="user",
             parts=[
-                types.Part(
-                    text=f"Transform this research paper into an illustrated story for age group {age_group} in {style} style."
-                )
+                types.Part(text="Begin processing.")
             ],
         )
 

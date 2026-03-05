@@ -1,8 +1,11 @@
-"""Tools for audio narration using Google Cloud Text-to-Speech."""
+"""Tools for audio narration using Gemini TTS."""
 
 import base64
+import io
+import wave
 
-from google.cloud import texttospeech
+from google import genai
+from google.genai import types
 
 
 def get_voice_for_age_group(age_group: str) -> dict:
@@ -12,23 +15,20 @@ def get_voice_for_age_group(age_group: str) -> dict:
         age_group: Target age group — "6-9", "10-13", or "14-17".
 
     Returns:
-        A dict with 'voice_name', 'speaking_rate', and 'description'.
+        A dict with 'voice_name' and 'description'.
     """
     voices = {
         "6-9": {
-            "voice_name": "en-US-Journey-D",
-            "speaking_rate": 0.9,
-            "description": "Warm, friendly voice at a slower pace for young listeners",
+            "voice_name": "Leda",
+            "description": "Warm, youthful voice for young listeners",
         },
         "10-13": {
-            "voice_name": "en-US-Journey-D",
-            "speaking_rate": 1.0,
-            "description": "Clear, engaging voice at a normal pace for middle readers",
+            "voice_name": "Achird",
+            "description": "Clear, friendly voice for middle readers",
         },
         "14-17": {
-            "voice_name": "en-US-Journey-D",
-            "speaking_rate": 1.05,
-            "description": "Natural, mature voice at a slightly faster pace for teens",
+            "voice_name": "Orus",
+            "description": "Natural, firm voice for teens",
         },
     }
     return voices.get(age_group, voices["10-13"])
@@ -36,15 +36,13 @@ def get_voice_for_age_group(age_group: str) -> dict:
 
 def synthesize_speech(
     text: str,
-    voice_name: str = "en-US-Journey-D",
-    speaking_rate: float = 1.0,
+    voice_name: str = "Achird",
 ) -> dict:
-    """Convert text to speech using Google Cloud TTS.
+    """Convert text to speech using Gemini TTS.
 
     Args:
         text: The text to convert to speech.
-        voice_name: Google Cloud TTS voice name.
-        speaking_rate: Speech speed multiplier (0.25 to 4.0).
+        voice_name: Gemini TTS voice name (e.g. Leda, Achird, Orus).
 
     Returns:
         A dict with 'audio_base64', 'mime_type', and 'size_bytes' on success,
@@ -54,32 +52,40 @@ def synthesize_speech(
         return {"error": "Text is empty — nothing to synthesize"}
 
     try:
-        client = texttospeech.TextToSpeechClient()
+        client = genai.Client()
 
-        synthesis_input = texttospeech.SynthesisInput(text=text)
-
-        voice_params = texttospeech.VoiceSelectionParams(
-            language_code="en-US",
-            name=voice_name,
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-preview-tts",
+            contents=text,
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=voice_name,
+                        ),
+                    ),
+                ),
+            ),
         )
 
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3,
-            speaking_rate=speaking_rate,
-        )
+        pcm_data = response.candidates[0].content.parts[0].inline_data.data
 
-        response = client.synthesize_speech(
-            input=synthesis_input,
-            voice=voice_params,
-            audio_config=audio_config,
-        )
+        # Convert raw PCM (24kHz, 16-bit, mono) to WAV
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)  # 16-bit
+            wf.setframerate(24000)
+            wf.writeframes(pcm_data)
 
-        audio_base64 = base64.b64encode(response.audio_content).decode("utf-8")
+        wav_bytes = wav_buffer.getvalue()
+        audio_base64 = base64.b64encode(wav_bytes).decode("utf-8")
 
         return {
             "audio_base64": audio_base64,
-            "mime_type": "audio/mpeg",
-            "size_bytes": len(response.audio_content),
+            "mime_type": "audio/wav",
+            "size_bytes": len(wav_bytes),
         }
 
     except Exception as exc:
