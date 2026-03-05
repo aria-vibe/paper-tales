@@ -194,10 +194,13 @@ class TestMediaRehydration:
         bucket.blob.side_effect = make_blob
 
         scenes = [{"text": "Hello", "scene_number": 1}]
-        hydrated = service._rehydrate_media("s1", 1, scenes)
+        hydrated, extra_audio = service._rehydrate_media("s1", 1, scenes)
 
         assert hydrated[0]["imageBase64"] == SAMPLE_IMAGE_B64
         assert hydrated[0]["audioBase64"] == SAMPLE_AUDIO_B64
+        # title and conclusion audio also present since mock matches "audio" in path
+        assert "titleAudioBase64" in extra_audio
+        assert "conclusionAudioBase64" in extra_audio
 
     def test_missing_media_omitted(self, service, mock_storage):
         bucket = mock_storage.bucket.return_value
@@ -206,10 +209,11 @@ class TestMediaRehydration:
         bucket.blob.return_value = blob
 
         scenes = [{"text": "Hello"}]
-        hydrated = service._rehydrate_media("s1", 1, scenes)
+        hydrated, extra_audio = service._rehydrate_media("s1", 1, scenes)
 
         assert "imageBase64" not in hydrated[0]
         assert "audioBase64" not in hydrated[0]
+        assert extra_audio == {}
 
     def test_original_scenes_not_mutated(self, service, mock_storage):
         bucket = mock_storage.bucket.return_value

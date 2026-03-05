@@ -326,11 +326,31 @@ class FirestoreService:
     def _gcs_audio_path(self, story_id: str, version: int, scene_index: int) -> str:
         return f"stories/{story_id}/v{version}/scene_{scene_index}_audio.mp3"
 
+    def _gcs_title_audio_path(self, story_id: str, version: int) -> str:
+        return f"stories/{story_id}/v{version}/title_audio.mp3"
+
+    def _gcs_conclusion_audio_path(self, story_id: str, version: int) -> str:
+        return f"stories/{story_id}/v{version}/conclusion_audio.mp3"
+
     def _extract_media_from_story(self, story_content: dict) -> tuple[dict, list[dict]]:
-        """Strip base64 media from scenes, return (text_only_story, media_items)."""
+        """Strip base64 media from scenes + top-level audio, return (text_only_story, media_items)."""
         import copy
         clean_story = copy.deepcopy(story_content)
         media_items = []
+
+        # Top-level title / conclusion audio
+        for key, media_label in [("titleAudioBase64", "title_audio"), ("conclusionAudioBase64", "conclusion_audio")]:
+            raw = clean_story.pop(key, None)
+            if raw:
+                try:
+                    data = base64.b64decode(raw)
+                    media_items.append({
+                        "type": media_label,
+                        "data": data,
+                        "content_type": "audio/mpeg",
+                    })
+                except Exception:
+                    logger.warning("Failed to decode %s base64", media_label)
 
         for i, scene in enumerate(clean_story.get("scenes", [])):
             if "imageBase64" in scene:
@@ -366,18 +386,31 @@ class FirestoreService:
     def _upload_media_to_gcs(self, story_id: str, version: int, media_items: list[dict]) -> None:
         """Upload extracted media items to individual GCS files."""
         for item in media_items:
-            if item["type"] == "image":
+            media_type = item["type"]
+            if media_type == "image":
                 path = self._gcs_image_path(story_id, version, item["scene_index"])
-            else:
+            elif media_type == "audio":
                 path = self._gcs_audio_path(story_id, version, item["scene_index"])
+            elif media_type == "title_audio":
+                path = self._gcs_title_audio_path(story_id, version)
+            elif media_type == "conclusion_audio":
+                path = self._gcs_conclusion_audio_path(story_id, version)
+            else:
+                logger.warning("Unknown media type: %s", media_type)
+                continue
 
             blob = self._bucket.blob(path)
             blob.upload_from_string(item["data"], content_type=item["content_type"])
 
-    def _rehydrate_media(self, story_id: str, version: int, scenes: list[dict]) -> list[dict]:
-        """Attach base64-encoded media back to scenes by reading from GCS."""
+    def _rehydrate_media(self, story_id: str, version: int, scenes: list[dict]) -> tuple[list[dict], dict]:
+        """Attach base64-encoded media back to scenes + return top-level audio.
+
+        Returns (hydrated_scenes, extra_audio) where extra_audio may contain
+        ``titleAudioBase64`` and/or ``conclusionAudioBase64``.
+        """
         import copy
         hydrated = copy.deepcopy(scenes)
+        extra_audio: dict = {}
 
         for i, scene in enumerate(hydrated):
             # Try image
@@ -398,17 +431,30 @@ class FirestoreService:
             except Exception:
                 pass  # No audio for this scene
 
-        return hydrated
+        # Title / conclusion audio
+        for path_fn, key in [
+            (self._gcs_title_audio_path, "titleAudioBase64"),
+            (self._gcs_conclusion_audio_path, "conclusionAudioBase64"),
+        ]:
+            try:
+                blob = self._bucket.blob(path_fn(story_id, version))
+                data = blob.download_as_bytes()
+                extra_audio[key] = base64.b64encode(data).decode("utf-8")
+            except Exception:
+                pass
+
+        return hydrated, extra_audio
 
     def _build_story_from_firestore(self, story_id: str, data: dict) -> dict:
         """Reconstruct full story response from Firestore data + GCS media."""
         version = data.get("current_version", 1)
-        scenes = self._rehydrate_media(story_id, version, data.get("scenes", []))
+        scenes, extra_audio = self._rehydrate_media(story_id, version, data.get("scenes", []))
 
         story = {
             "id": story_id,
             "title": data.get("title", ""),
             "scenes": scenes,
+            **extra_audio,
             "paperTitle": data.get("paper_title", ""),
             "authors": data.get("authors", ""),
             "fieldOfStudy": data.get("field_of_study", "Other"),

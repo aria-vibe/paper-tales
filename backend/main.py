@@ -220,7 +220,7 @@ async def _run_pipeline_task(
 
         # Collect media from event stream for GCS persistence
         collected_images: list[str] = []  # base64 strings in scene order
-        collected_audio: list[str] = []   # base64 strings in scene order
+        collected_audio: list[dict] = []   # {"label": str, "audio_base64": str}
 
         async for event in runner.run_async(
             user_id=uid,
@@ -265,7 +265,10 @@ async def _run_pipeline_task(
                     if fr and getattr(fr, "name", "") == "synthesize_speech":
                         resp = fr.response if isinstance(getattr(fr, "response", None), dict) else {}
                         if resp.get("audio_base64"):
-                            collected_audio.append(resp["audio_base64"])
+                            collected_audio.append({
+                                "label": resp.get("label", ""),
+                                "audio_base64": resp["audio_base64"],
+                            })
                 # Record time-to-first-token
                 if agent_first_token_time is None:
                     agent_first_token_time = time.monotonic()
@@ -321,10 +324,18 @@ async def _run_pipeline_task(
                 if i < len(collected_images):
                     scene["imageBase64"] = collected_images[i]
         if collected_audio:
-            logger.info("Injecting %d captured audio clips into %d scenes", len(collected_audio), len(scenes))
-            for i, scene in enumerate(scenes):
-                if i < len(collected_audio):
-                    scene["audioBase64"] = collected_audio[i]
+            logger.info("Injecting %d captured audio clips (scenes=%d)", len(collected_audio), len(scenes))
+            for item in collected_audio:
+                label = item["label"]
+                audio = item["audio_base64"]
+                if label == "title":
+                    story["titleAudioBase64"] = audio
+                elif label == "conclusion":
+                    story["conclusionAudioBase64"] = audio
+                elif label.startswith("scene_"):
+                    idx = int(label.split("_", 1)[1])
+                    if idx < len(scenes):
+                        scenes[idx]["audioBase64"] = audio
 
         # Extract metadata from pipeline state
         field = _extract_field_of_study(session.state.get(STATE_CONCEPTS, ""))

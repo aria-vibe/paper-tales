@@ -10,6 +10,11 @@ export interface StoryScene {
   audioBase64?: string;
 }
 
+export interface FactCheck {
+  accuracy_rating?: number | string;
+  summary?: string;
+}
+
 export interface Story {
   id: string;
   title: string;
@@ -17,6 +22,7 @@ export interface Story {
   style: StoryStyle;
   scenes: StoryScene[];
   glossary?: Record<string, string>;
+  factCheck?: FactCheck;
   sourceTitle?: string;
   paperTitle?: string;
   fieldOfStudy?: string;
@@ -25,6 +31,8 @@ export interface Story {
   upvotes?: number;
   downvotes?: number;
   userVote?: "up" | "down";
+  titleAudioBase64?: string;
+  conclusionAudioBase64?: string;
   createdAt: string;
 }
 

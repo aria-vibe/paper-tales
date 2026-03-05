@@ -20,11 +20,11 @@ from ..tools.audio_tools import get_voice_for_age_group, synthesize_speech
 logger = logging.getLogger(__name__)
 
 
-def _extract_scene_texts(story_text: str) -> list[str]:
-    """Extract narration text for each scene from the story markdown.
+def _extract_scene_texts(story_text: str) -> list[dict]:
+    """Extract labelled narration texts from the story markdown.
 
-    Splits on '## Scene N:' headers and extracts prose paragraphs,
-    skipping the glossary table and image markers.
+    Returns a list of ``{"label": str, "text": str}`` dicts where label is
+    one of ``"title"``, ``"scene_0"`` … ``"scene_N"``, or ``"conclusion"``.
     """
     if not story_text or not story_text.strip():
         return []
@@ -33,26 +33,25 @@ def _extract_scene_texts(story_text: str) -> list[str]:
     scene_pattern = re.compile(r"^## Scene \d+:", re.MULTILINE)
     parts = scene_pattern.split(story_text)
 
-    scenes: list[str] = []
+    items: list[dict] = []
 
     # First part is the title/intro before Scene 1
     intro = parts[0].strip() if parts else ""
     if intro:
-        # Extract title and tagline from intro (before first scene)
         lines = [
             ln.strip()
             for ln in intro.split("\n")
             if ln.strip()
-            and not ln.strip().startswith("|")  # skip table rows
-            and not ln.strip().startswith("###")  # skip glossary header
+            and not ln.strip().startswith("|")
+            and not ln.strip().startswith("###")
         ]
-        # Remove markdown formatting for TTS
         intro_text = " ".join(lines)
         intro_text = re.sub(r"[#*_`]", "", intro_text).strip()
         if intro_text:
-            scenes.append(intro_text)
+            items.append({"label": "title", "text": intro_text})
 
     # Each subsequent part is a scene body (after the header was split off)
+    scene_index = 0
     for part in parts[1:]:
         # Stop at glossary or "The End" section
         end_markers = ["### GLOSSARY", "## The End"]
@@ -77,9 +76,10 @@ def _extract_scene_texts(story_text: str) -> list[str]:
         scene_text = " ".join(lines)
         scene_text = re.sub(r"[#*_`]", "", scene_text).strip()
         if scene_text:
-            scenes.append(scene_text)
+            items.append({"label": f"scene_{scene_index}", "text": scene_text})
+            scene_index += 1
 
-    # Also capture "The End" / "What We Learned" section
+    # Capture "The End" / "What We Learned" conclusion section
     end_match = re.search(r"## The End\s*\n(.*?)(?:### GLOSSARY|$)", story_text, re.DOTALL)
     if end_match:
         end_text = end_match.group(1).strip()
@@ -91,9 +91,9 @@ def _extract_scene_texts(story_text: str) -> list[str]:
         end_text = " ".join(lines)
         end_text = re.sub(r"[#*_`]", "", end_text).strip()
         if end_text:
-            scenes.append(end_text)
+            items.append({"label": "conclusion", "text": end_text})
 
-    return scenes
+    return items
 
 
 class AudioNarratorAgent(BaseAgent):
@@ -115,11 +115,11 @@ class AudioNarratorAgent(BaseAgent):
             "Audio narrator: voice=%s for age_group=%s", voice_name, age_group
         )
 
-        # Extract scene texts
-        scene_texts = _extract_scene_texts(story_text)
-        logger.info("Audio narrator: extracted %d scene texts", len(scene_texts))
+        # Extract labelled narration texts
+        narration_items = _extract_scene_texts(story_text)
+        logger.info("Audio narrator: extracted %d narration items", len(narration_items))
 
-        if not scene_texts:
+        if not narration_items:
             summary = "Audio narration skipped: no scene text found."
             yield Event(
                 author=self.name,
@@ -132,30 +132,32 @@ class AudioNarratorAgent(BaseAgent):
             )
             return
 
-        # Synthesize each scene
+        # Synthesize each narration item
         successful = 0
         failed = 0
         rate_limited = False
-        for i, text in enumerate(scene_texts):
-            result = synthesize_speech(text, voice_name)
+        for item in narration_items:
+            label = item["label"]
+            result = synthesize_speech(item["text"], voice_name)
 
             if result.get("rate_limited"):
                 logger.warning(
-                    "TTS daily limit reached at scene %d, skipping audio",
-                    i + 1,
+                    "TTS daily limit reached at %s, skipping remaining audio",
+                    label,
                 )
                 rate_limited = True
                 break
 
+            # Tag the result with its label so main.py can route it
+            result["label"] = label
+
             if result.get("error"):
-                logger.warning(
-                    "TTS failed for scene %d: %s", i + 1, result["error"]
-                )
+                logger.warning("TTS failed for %s: %s", label, result["error"])
                 failed += 1
             else:
                 logger.info(
-                    "TTS success for scene %d: %d bytes",
-                    i + 1,
+                    "TTS success for %s: %d bytes",
+                    label,
                     result.get("size_bytes", 0),
                 )
                 successful += 1
@@ -197,7 +199,7 @@ class AudioNarratorAgent(BaseAgent):
         summary = (
             f"## AUDIO NARRATION\n\n"
             f"- Voice: {voice_name}\n"
-            f"- Total scenes: {len(scene_texts)}\n"
+            f"- Total items: {len(narration_items)}\n"
             f"- Successful: {successful}\n"
             f"- Failed: {failed}\n"
             f"- Age group: {age_group}\n"

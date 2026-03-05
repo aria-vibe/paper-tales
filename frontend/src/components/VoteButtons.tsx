@@ -17,7 +17,7 @@ export function VoteButtons({
   getToken,
 }: VoteButtonsProps) {
   const [upvotes, setUpvotes] = useState(initialUpvotes);
-  const [downvotes, setDownvotes] = useState(initialDownvotes);
+  const [_downvotes, setDownvotes] = useState(initialDownvotes);
   const [userVote, setUserVote] = useState<"up" | "down" | undefined>(
     initialUserVote
   );
@@ -55,7 +55,7 @@ export function VoteButtons({
         disabled={loading}
         aria-label="Downvote"
       >
-        {"\u25BC"} {downvotes}
+        {"\u25BC"}
       </button>
     </div>
   );
