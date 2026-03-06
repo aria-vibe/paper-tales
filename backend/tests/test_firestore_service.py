@@ -754,10 +754,10 @@ class TestGetTopPapersByField:
         assert result["Physics"][0]["id"] == "story-abc"
         assert result["Physics"][0]["upvotes"] == 10
 
-    def test_falls_back_to_recent_when_no_upvotes(self, service, mock_firestore):
-        """When no stories have upvotes, falls back to recent stories."""
+    def test_includes_stories_with_zero_upvotes(self, service, mock_firestore):
+        """Stories with 0 upvotes are included in results."""
         mock_doc = MagicMock()
-        mock_doc.id = "recent-story"
+        mock_doc.id = "zero-votes-story"
         mock_doc.to_dict.return_value = {
             "title": "Fresh Story",
             "paper_title": "Paper",
@@ -769,24 +769,16 @@ class TestGetTopPapersByField:
             "archive": "arXiv",
         }
 
-        # First query (upvotes) returns doc with 0 upvotes → breaks immediately
-        # Second query (created_at fallback) returns the same doc
-        upvotes_query = MagicMock()
-        upvotes_query.order_by.return_value = upvotes_query
-        upvotes_query.limit.return_value = upvotes_query
-        upvotes_query.stream.return_value = [mock_doc]
-
-        recency_query = MagicMock()
-        recency_query.order_by.return_value = recency_query
-        recency_query.limit.return_value = recency_query
-        recency_query.stream.return_value = [mock_doc]
-
-        mock_firestore.collection.return_value = upvotes_query
+        query = MagicMock()
+        query.order_by.return_value = query
+        query.limit.return_value = query
+        query.stream.return_value = [mock_doc]
+        mock_firestore.collection.return_value = query
 
         result = service.get_top_papers_by_field()
-        # Fallback should return the recent story
         assert "Biology" in result
-        assert result["Biology"][0]["id"] == "recent-story"
+        assert result["Biology"][0]["id"] == "zero-votes-story"
+        assert result["Biology"][0]["upvotes"] == 0
 
     def test_empty_when_no_stories(self, service, mock_firestore):
         query = MagicMock()

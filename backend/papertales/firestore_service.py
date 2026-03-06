@@ -234,8 +234,9 @@ class FirestoreService:
     def get_top_papers_by_field(self, limit_per_field: int = 3) -> dict[str, list[dict]]:
         """Query top stories grouped by field of study.
 
-        Uses a single query (no composite index required) and groups in Python.
-        Falls back to recent stories if none have upvotes.
+        Returns up to ``limit_per_field`` stories per field, sorted by upvotes
+        descending.  Stories with 0 upvotes are included so every field with
+        at least one story appears in the results.
         """
         def _doc_to_entry(doc, data):
             return {
@@ -249,7 +250,7 @@ class FirestoreService:
                 "archive": data.get("archive", ""),
             }
 
-        # Try upvoted stories first (single-field index, no composite needed)
+        # Single query ordered by upvotes; fetch enough to fill all fields
         query = (
             self._db.collection(STORIES_COLLECTION)
             .order_by("upvotes", direction=firestore.Query.DESCENDING)
@@ -257,25 +258,6 @@ class FirestoreService:
         )
 
         result: dict[str, list[dict]] = {}
-        for doc in query.stream():
-            data = doc.to_dict()
-            if data.get("upvotes", 0) <= 0:
-                break  # Sorted desc, so no more upvoted stories
-            field = data.get("field_of_study", "Other")
-            bucket = result.setdefault(field, [])
-            if len(bucket) < limit_per_field:
-                bucket.append(_doc_to_entry(doc, data))
-
-        if result:
-            return result
-
-        # Fallback: show recent stories regardless of upvotes
-        query = (
-            self._db.collection(STORIES_COLLECTION)
-            .order_by("created_at", direction=firestore.Query.DESCENDING)
-            .limit(limit_per_field * 14)
-        )
-
         for doc in query.stream():
             data = doc.to_dict()
             field = data.get("field_of_study", "Other")

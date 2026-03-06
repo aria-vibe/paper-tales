@@ -86,7 +86,20 @@ function AuthImage({
   loading?: "lazy" | "eager";
 }) {
   const src = useAuthMedia(getToken, imageUrl, imageBase64, "image/png");
-  if (!src) return null;
+  const isLoading = !src && !!(imageUrl || imageBase64);
+  if (!src && !isLoading) return null;
+  if (isLoading) {
+    return (
+      <div className="media-placeholder media-placeholder-image">
+        <div className="media-placeholder-shimmer" />
+        <svg className="media-placeholder-icon" width="48" height="48" viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" />
+          <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M3 16l5-5 4 4 3-3 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+    );
+  }
   return <img src={src} alt={alt} loading={loading} />;
 }
 
@@ -102,7 +115,21 @@ function AuthAudio({
   className?: string;
 }) {
   const src = useAuthMedia(getToken, audioUrl, audioBase64, "audio/mpeg");
-  if (!src) return null;
+  const isLoading = !src && !!(audioUrl || audioBase64);
+  if (!src && !isLoading) return null;
+  if (isLoading) {
+    return (
+      <div className={`media-placeholder media-placeholder-audio ${className ?? ""}`}>
+        <div className="media-placeholder-shimmer" />
+        <svg className="media-placeholder-icon" width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M9 18V5l12-2v13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="6" cy="18" r="3" stroke="currentColor" strokeWidth="1.5" />
+          <circle cx="18" cy="16" r="3" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+        <span className="media-placeholder-label">Loading audio...</span>
+      </div>
+    );
+  }
   return (
     <audio controls src={src} className={className}>
       Your browser does not support the audio element.
@@ -117,6 +144,7 @@ function ScenePage({
   currentScene,
   glossary,
   getToken,
+  onReadAgain,
 }: {
   scene: StoryScene;
   index: number;
@@ -124,9 +152,11 @@ function ScenePage({
   currentScene: number;
   glossary: Record<string, string>;
   getToken?: () => Promise<string>;
+  onReadAgain?: () => void;
 }) {
   const hasImage = !!(scene.imageBase64 || scene.imageUrl);
   const hasAudio = !!(scene.audioBase64 || scene.audioUrl);
+  const glossaryEntries = Object.entries(glossary);
 
   return (
     <div className="book-page-slide">
@@ -156,6 +186,28 @@ function ScenePage({
               audioBase64={scene.audioBase64}
               className="book-audio"
             />
+          )}
+          {isConclusion && glossaryEntries.length > 0 && (
+            <div className="book-glossary">
+              <div className="book-glossary-badge">Glossary</div>
+              <dl className="book-glossary-list">
+                {glossaryEntries.map(([term, definition]) => (
+                  <div key={term} className="book-glossary-entry">
+                    <dt>{term}</dt>
+                    <dd>{definition}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
+          {isConclusion && onReadAgain && (
+            <button className="book-read-again" onClick={onReadAgain}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M1 4v6h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Read Again
+            </button>
           )}
         </div>
       </div>
@@ -331,6 +383,7 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
                 currentScene={currentScene}
                 glossary={glossary}
                 getToken={getToken}
+                onReadAgain={() => goTo(0)}
               />
             ))}
           </div>
