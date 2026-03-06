@@ -6,6 +6,7 @@ from .agents.paper_parser import paper_parser
 from .agents.concept_extractor import concept_extractor
 from .agents.language_simplifier import language_simplifier
 from .agents.narrative_designer import narrative_designer
+from .agents.narrative_gate import narrative_gate
 from .agents.story_illustrator import story_illustrator
 from .agents.audio_narrator import audio_narrator
 from .agents.fact_checker import fact_checker
@@ -23,6 +24,7 @@ root_agent = SequentialAgent(
         concept_extractor,
         language_simplifier,
         narrative_designer,
+        narrative_gate,
         story_illustrator,
         audio_narrator,
         fact_checker,

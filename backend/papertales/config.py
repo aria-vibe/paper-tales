@@ -26,9 +26,16 @@ STATE_STORY = "generated_story"
 STATE_AUDIO = "audio_urls"
 STATE_FACTCHECK = "fact_check_result"
 STATE_FINAL = "final_story"
+STATE_STORY_TEMPLATE = "story_template"
+
+# Scene count (extracted from story template for quality gates)
+STATE_SCENE_COUNT = "scene_count"
 
 # Correlation keys
 STATE_SESSION_ID = "session_id"
+
+# Paper cache key (set to "true" when parsed content is pre-loaded from cache)
+STATE_PAPER_CACHED = "paper_cached"
 
 # User-provided input keys
 STATE_USER_PAPER_URL = "user_paper_url"

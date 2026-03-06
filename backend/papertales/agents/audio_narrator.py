@@ -21,6 +21,34 @@ from ..tools.audio_tools import get_voice_for_age_group, synthesize_speech
 logger = logging.getLogger(__name__)
 
 
+# Primary: H2 header  —  ## The End / ## **THE END** / ## the end
+_END_MARKER_RE = re.compile(
+    r"^##\s*(?:\*\*)?the\s+end(?:\*\*)?\s*$", re.MULTILINE | re.IGNORECASE
+)
+# Fallback: standalone line  —  THE END / **THE END** / The End
+_END_MARKER_FALLBACK_RE = re.compile(
+    r"^\s*(?:\*\*)?THE\s+END(?:\*\*)?\s*$", re.MULTILINE
+)
+_GLOSSARY_MARKER_RE = re.compile(
+    r"^###?\s*GLOSSARY", re.MULTILINE | re.IGNORECASE
+)
+# Fallback for conclusion: "What We Learned" section
+_WHAT_WE_LEARNED_RE = re.compile(
+    r"(?:\*\*)?what we learned:?(?:\*\*)?\s*", re.IGNORECASE
+)
+
+
+def _is_noise_line(line: str) -> bool:
+    """Return True for lines that should not be narrated."""
+    if not line:
+        return True
+    if line.startswith("|"):  # table rows
+        return True
+    if line.startswith("[Generate") or line.startswith("[Image"):
+        return True
+    return False
+
+
 def _extract_scene_texts(story_text: str) -> list[dict]:
     """Extract labelled narration texts from the story markdown.
 
@@ -39,40 +67,49 @@ def _extract_scene_texts(story_text: str) -> list[dict]:
     # First part is the title/intro before Scene 1
     intro = parts[0].strip() if parts else ""
     if intro:
-        lines = [
-            ln.strip()
-            for ln in intro.split("\n")
-            if ln.strip()
-            and not ln.strip().startswith("|")
-            and not ln.strip().startswith("###")
-        ]
+        lines = []
+        for ln in intro.split("\n"):
+            ln = ln.strip()
+            if _is_noise_line(ln) or ln.startswith("###"):
+                continue
+            lines.append(ln)
+
+        # Skip model preamble: discard lines before the first # header
+        first_header_idx = next(
+            (i for i, ln in enumerate(lines) if ln.startswith("#")), None
+        )
+        if first_header_idx is not None and first_header_idx > 0:
+            lines = lines[first_header_idx:]
+
         intro_text = " ".join(lines)
         intro_text = re.sub(r"[#*_`]", "", intro_text).strip()
         if intro_text:
             items.append({"label": "title", "text": intro_text})
 
+    # Find the end-of-story marker position (used by both scene loop & conclusion)
+    end_marker = _END_MARKER_RE.search(story_text) or _END_MARKER_FALLBACK_RE.search(story_text)
+
     # Each subsequent part is a scene body (after the header was split off)
     scene_index = 0
     for part in parts[1:]:
-        # Stop at glossary or "The End" section
-        end_markers = ["### GLOSSARY", "## The End"]
         text = part
-        for marker in end_markers:
-            idx = text.find(marker)
-            if idx != -1:
-                text = text[:idx]
+
+        # Stop at glossary (case-insensitive)
+        m = _GLOSSARY_MARKER_RE.search(text)
+        if m:
+            text = text[: m.start()]
+
+        # Stop at "The End" section (case-insensitive, with fallback)
+        m = _END_MARKER_RE.search(text) or _END_MARKER_FALLBACK_RE.search(text)
+        if m:
+            text = text[: m.start()]
 
         # Clean up: remove image markers, empty lines, markdown formatting
-        lines = []
-        for line in text.split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            if line.startswith("|"):  # table rows
-                continue
-            if line.startswith("[Generate") or line.startswith("[Image"):
-                continue
-            lines.append(line)
+        lines = [
+            ln.strip()
+            for ln in text.split("\n")
+            if not _is_noise_line(ln.strip())
+        ]
 
         scene_text = " ".join(lines)
         scene_text = re.sub(r"[#*_`]", "", scene_text).strip()
@@ -81,9 +118,12 @@ def _extract_scene_texts(story_text: str) -> list[dict]:
             scene_index += 1
 
     # Capture "The End" / "What We Learned" conclusion section
-    end_match = re.search(r"## The End\s*\n(.*?)(?:### GLOSSARY|$)", story_text, re.DOTALL)
-    if end_match:
-        end_text = end_match.group(1).strip()
+    if end_marker:
+        after_end = story_text[end_marker.end() :]
+        # Trim at glossary
+        gm = _GLOSSARY_MARKER_RE.search(after_end)
+        conclusion_block = after_end[: gm.start()] if gm else after_end
+        end_text = conclusion_block.strip()
         lines = [
             ln.strip()
             for ln in end_text.split("\n")
@@ -93,6 +133,29 @@ def _extract_scene_texts(story_text: str) -> list[dict]:
         end_text = re.sub(r"[#*_`]", "", end_text).strip()
         if end_text:
             items.append({"label": "conclusion", "text": end_text})
+    else:
+        # Fallback: look for "What We Learned" anywhere after the last scene
+        wwl_match = _WHAT_WE_LEARNED_RE.search(story_text)
+        if wwl_match:
+            after_wwl = story_text[wwl_match.start() :]
+            gm = _GLOSSARY_MARKER_RE.search(after_wwl)
+            conclusion_block = after_wwl[: gm.start()] if gm else after_wwl
+            end_text = conclusion_block.strip()
+            lines = [
+                ln.strip()
+                for ln in end_text.split("\n")
+                if ln.strip() and not ln.strip().startswith("|")
+            ]
+            end_text = " ".join(lines)
+            end_text = re.sub(r"[#*_`]", "", end_text).strip()
+            if end_text:
+                items.append({"label": "conclusion", "text": end_text})
+
+    logger.info(
+        "Extracted narration labels: %s (story_text length=%d)",
+        [i["label"] for i in items],
+        len(story_text),
+    )
 
     return items
 
@@ -116,6 +179,13 @@ class AudioNarratorAgent(BaseAgent):
             "Audio narrator: voice=%s for age_group=%s", voice_name, age_group
         )
 
+        # Log story structure for diagnostics
+        logger.info(
+            "Audio narrator: STATE_STORY length=%d, tail=%r",
+            len(story_text),
+            story_text[-500:] if len(story_text) > 500 else story_text,
+        )
+
         # Extract labelled narration texts
         narration_items = _extract_scene_texts(story_text)
         logger.info("Audio narrator: extracted %d narration items", len(narration_items))
@@ -134,7 +204,7 @@ class AudioNarratorAgent(BaseAgent):
             return
 
         # Synthesize all narration items in parallel
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         tasks = [
             loop.run_in_executor(None, synthesize_speech, item["text"], voice_name)
             for item in narration_items

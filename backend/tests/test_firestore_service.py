@@ -90,6 +90,86 @@ def _story_without_media():
 
 
 # ---------------------------------------------------------------------------
+# Paper content cache
+# ---------------------------------------------------------------------------
+
+
+class TestPaperDocId:
+    def test_simple_id(self):
+        assert FirestoreService._paper_doc_id("2301.12345") == "2301.12345"
+
+    def test_slash_replaced(self):
+        assert FirestoreService._paper_doc_id("hep-th/9901001") == "hep-th_9901001"
+
+    def test_multiple_slashes(self):
+        assert FirestoreService._paper_doc_id("a/b/c") == "a_b_c"
+
+
+class TestGetCachedPaper:
+    def test_returns_none_when_not_cached(self, service, mock_firestore):
+        doc = MagicMock()
+        doc.exists = False
+        mock_firestore.collection.return_value.document.return_value.get.return_value = doc
+
+        result = service.get_cached_paper("2301.12345")
+        assert result is None
+        mock_firestore.collection.assert_called_with("parsed_papers")
+        mock_firestore.collection.return_value.document.assert_called_with("2301.12345")
+
+    def test_returns_cached_content(self, service, mock_firestore):
+        doc = MagicMock()
+        doc.exists = True
+        doc.to_dict.return_value = {
+            "parsed_content": "**TITLE**: Test Paper\n**AUTHORS**: Author A",
+        }
+        mock_firestore.collection.return_value.document.return_value.get.return_value = doc
+
+        result = service.get_cached_paper("2301.12345")
+        assert result == "**TITLE**: Test Paper\n**AUTHORS**: Author A"
+
+    def test_sanitizes_doc_id(self, service, mock_firestore):
+        doc = MagicMock()
+        doc.exists = False
+        mock_firestore.collection.return_value.document.return_value.get.return_value = doc
+
+        service.get_cached_paper("hep-th/9901001")
+        mock_firestore.collection.return_value.document.assert_called_with("hep-th_9901001")
+
+
+class TestSaveParsedPaper:
+    def test_saves_to_firestore(self, service, mock_firestore):
+        content = "**TITLE**: My Paper\n**AUTHORS**: Author B"
+        service.save_parsed_paper(
+            paper_id="2301.12345",
+            archive="arXiv",
+            source_url="https://arxiv.org/abs/2301.12345",
+            parsed_content=content,
+        )
+
+        mock_firestore.collection.assert_called_with("parsed_papers")
+        mock_firestore.collection.return_value.document.assert_called_with("2301.12345")
+
+        doc_ref = mock_firestore.collection.return_value.document.return_value
+        doc_ref.set.assert_called_once()
+        saved = doc_ref.set.call_args[0][0]
+        assert saved["paper_id"] == "2301.12345"
+        assert saved["archive"] == "arXiv"
+        assert saved["source_url"] == "https://arxiv.org/abs/2301.12345"
+        assert saved["parsed_content"] == content
+        assert saved["char_count"] == len(content)
+        assert "created_at" in saved
+
+    def test_sanitizes_doc_id_for_save(self, service, mock_firestore):
+        service.save_parsed_paper(
+            paper_id="hep-th/9901001",
+            archive="arXiv",
+            source_url="https://arxiv.org/abs/hep-th/9901001",
+            parsed_content="content",
+        )
+        mock_firestore.collection.return_value.document.assert_called_with("hep-th_9901001")
+
+
+# ---------------------------------------------------------------------------
 # compute_story_id
 # ---------------------------------------------------------------------------
 

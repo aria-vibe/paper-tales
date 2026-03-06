@@ -840,19 +840,31 @@ a:hover {
   background: linear-gradient(
     90deg,
     var(--primary) 0%,
-    #7c3aed 50%,
-    var(--primary) 100%
+    #7c3aed 100%
   );
-  background-size: 200% 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.uploader-progress-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    transparent 100%
+  );
   animation: shimmer 2s ease-in-out infinite;
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: 100% 0;
+  0%, 100% {
+    opacity: 0;
   }
-  100% {
-    background-position: -100% 0;
+  50% {
+    opacity: 1;
   }
 }
 

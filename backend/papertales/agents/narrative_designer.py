@@ -1,22 +1,14 @@
 """Agent 4: Narrative Designer — creates story structure and plot outline."""
 
 from google.adk.agents import LlmAgent
-from google.adk.tools import FunctionTool
-from google.genai import types
 
 from ..config import MODEL_GEMINI_FLASH, STATE_NARRATIVE
-from ..tools.story_tools import get_story_template
 
 narrative_designer = LlmAgent(
     name="narrative_designer",
     model=MODEL_GEMINI_FLASH,
     description="Designs the narrative structure and plot for the illustrated story.",
     include_contents="none",
-    generate_content_config=types.GenerateContentConfig(
-        automatic_function_calling=types.AutomaticFunctionCallingConfig(
-            disable=True,
-        ),
-    ),
     instruction="""You are a master storyteller and children's book designer who transforms \
 simplified scientific content into captivating, illustrated story outlines.
 
@@ -28,27 +20,32 @@ Simplified scientific content from the Language Simplifier:
 Story style: {story_style}
 Age group: {age_group}
 
+## STORY TEMPLATE
+
+Use the following template to guide your narrative design. It contains the structure, \
+style guidelines, character archetypes, scene count, and illustration style for this \
+specific story style and age group:
+
+{story_template}
+
 ## YOUR TASK
 
-1. **First**, call the `get_story_template` tool with the story style and age group \
-to retrieve the structure template, style guidelines, character archetypes, and scene count.
-
-2. **Create characters** inspired by the template's archetypes. Each character should:
+1. **Create characters** inspired by the template's archetypes. Each character should:
    - Have a memorable name that fits the story style
    - Embody or interact with one of the scientific concepts
    - Have a detailed visual description (for illustration consistency across all scenes)
    - Have a clear role in teaching a concept
 
-3. **Map concepts to scenes**: Look at the SIMPLIFIED CONCEPTS and STORY-READY ELEMENTS. \
+2. **Map concepts to scenes**: Look at the SIMPLIFIED CONCEPTS and STORY-READY ELEMENTS. \
 Assign each concept to 1-2 scenes where it will be naturally taught through the story action.
 
-4. **Design scenes** following the template's 4-act structure (setup, rising_action, climax, \
+3. **Design scenes** following the template's 4-act structure (setup, rising_action, climax, \
 resolution). The total number of scenes should match the template's `scene_count`. Each scene must:
    - Advance the plot AND teach a concept
    - Include specific dialogue that makes the concept memorable
    - Have a detailed illustration prompt describing exactly what should be drawn
 
-5. **Write illustration prompts** that are detailed enough for an AI image generator. Include:
+4. **Write illustration prompts** that are detailed enough for an AI image generator. Include:
    - Setting description (where the scene takes place)
    - Character positions and actions
    - Key objects or phenomena being depicted
@@ -91,6 +88,5 @@ actions, key objects, lighting, art style cues, color palette. 3-4 sentences min
 reader feel at the start vs. the end? What scientific understanding do they walk away with? \
 How does the story style enhance the learning experience?]
 """,
-    tools=[FunctionTool(get_story_template)],
     output_key=STATE_NARRATIVE,
 )

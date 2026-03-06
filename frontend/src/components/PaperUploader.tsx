@@ -169,7 +169,7 @@ function ProgressSection({
   totalStages?: number | null;
 }) {
   const hasStageInfo = status === "processing" && currentStage != null && totalStages != null && totalStages > 0;
-  const progressPct = hasStageInfo ? Math.max(0, Math.round(((currentStage! - 0.5) / totalStages!) * 100)) : 0;
+  const progressPct = hasStageInfo ? Math.min(100, Math.max(0, Math.round((currentStage! / totalStages!) * 100))) : 0;
   const showBar = hasStageInfo;
 
   return (
@@ -191,7 +191,7 @@ function ProgressSection({
             ? "Uploading paper..."
             : "Starting generation..."}
       </p>
-      {showBar && (
+      {showBar && currentStage! > 0 && (
         <span className="uploader-progress-step">
           Step {currentStage} of {totalStages} &middot; {progressPct}%
         </span>

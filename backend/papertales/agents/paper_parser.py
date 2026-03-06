@@ -4,23 +4,32 @@ from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 from google.genai import types
 
-from ..config import MODEL_GEMINI_FLASH, STATE_PAPER_TEXT
+from ..config import MODEL_GEMINI_FLASH, STATE_PAPER_CACHED, STATE_PAPER_TEXT
 from ..tools.pdf_tools import fetch_paper_from_url
 
 PAPER_PARSER_INSTRUCTION = """\
-You are a research paper parser. Your ONLY job is to download and organize
-the content of a research paper using the provided tool.
+You are a research paper parser. Your job is to provide structured paper content.
 
-## Input
-Paper URL: {user_paper_url}
+## Cache Status
+Paper cached: {paper_cached}
 
 ## CRITICAL INSTRUCTIONS
-- You MUST call `fetch_paper_from_url` with the paper URL above. This is mandatory.
-- Do NOT generate paper content from your own knowledge. Even if you recognize \
-the paper, you MUST fetch it via the tool to get the complete, accurate text.
+
+**If the paper is cached** (paper_cached is "true"):
+The parsed content is already available below. Output it EXACTLY as-is without \
+any changes. Do NOT call any tools. Just reproduce the cached content verbatim.
+
+Cached content:
+{parsed_paper}
+
+**If the paper is NOT cached** (paper_cached is empty or "false"):
+You MUST call `fetch_paper_from_url` with the paper URL below. This is mandatory.
+- Do NOT generate paper content from your own knowledge.
 - Do NOT skip the tool call for any reason.
 
-## Steps
+Paper URL: {user_paper_url}
+
+## Steps (only when NOT cached)
 1. Call `fetch_paper_from_url` with the exact paper URL shown above.
 2. If the tool returns an error, report it clearly — do NOT fabricate content.
 3. Organize the extracted text into the structured format below using ONLY \

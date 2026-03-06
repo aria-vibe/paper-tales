@@ -13,6 +13,7 @@ from google.cloud import firestore, storage
 logger = logging.getLogger(__name__)
 
 STORIES_COLLECTION = "stories"
+PARSED_PAPERS_COLLECTION = "parsed_papers"
 DAILY_USAGE_COLLECTION = "daily_usage"
 GCS_BUCKET = "papertales-media"
 MAX_VERSIONS = 5
@@ -36,6 +37,37 @@ class FirestoreService:
         """Compute deterministic story ID from paper+age+style."""
         key = f"{paper_id}:{age_group}:{style}"
         return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+    @staticmethod
+    def _paper_doc_id(paper_id: str) -> str:
+        """Sanitize paper_id for use as a Firestore document ID."""
+        return paper_id.replace("/", "_")
+
+    def get_cached_paper(self, paper_id: str) -> str | None:
+        """Return cached parsed paper content, or None if not cached."""
+        doc_id = self._paper_doc_id(paper_id)
+        doc = self._db.collection(PARSED_PAPERS_COLLECTION).document(doc_id).get()
+        if not doc.exists:
+            return None
+        return doc.to_dict().get("parsed_content")
+
+    def save_parsed_paper(
+        self,
+        paper_id: str,
+        archive: str,
+        source_url: str,
+        parsed_content: str,
+    ) -> None:
+        """Cache parsed paper content in Firestore."""
+        doc_id = self._paper_doc_id(paper_id)
+        self._db.collection(PARSED_PAPERS_COLLECTION).document(doc_id).set({
+            "paper_id": paper_id,
+            "archive": archive,
+            "source_url": source_url,
+            "parsed_content": parsed_content,
+            "char_count": len(parsed_content),
+            "created_at": datetime.now(timezone.utc),
+        })
 
     def get_cached_story(self, story_id: str) -> dict | None:
         """Return cached story or None if not exists / flagged for regen."""

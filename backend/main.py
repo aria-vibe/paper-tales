@@ -23,6 +23,7 @@ from google.genai import types
 from pydantic import BaseModel
 
 from papertales.auth import UserInfo, verify_firebase_token
+from papertales.agents.audio_narrator import _extract_scene_texts
 from papertales.config import (
     FIELD_TAXONOMY,
     STATE_AUDIO,
@@ -30,9 +31,12 @@ from papertales.config import (
     STATE_FACTCHECK,
     STATE_FINAL,
     STATE_NARRATIVE,
+    STATE_PAPER_CACHED,
     STATE_PAPER_TEXT,
+    STATE_SCENE_COUNT,
     STATE_SIMPLIFIED,
     STATE_STORY,
+    STATE_STORY_TEMPLATE,
     STATE_USER_AGE_GROUP,
     STATE_USER_PAPER_URL,
     STATE_USER_STYLE,
@@ -56,6 +60,24 @@ APP_NAME = "papertales"
 
 _firestore_service = None
 _job_service = None
+
+# Persistent background event loop for pipeline execution.
+# Using a single long-lived loop avoids "Event loop is closed" errors that
+# occur when per-request loops are created and destroyed while the singleton
+# InMemoryRunner retains references to the original loop's async resources.
+_pipeline_loop: asyncio.AbstractEventLoop | None = None
+_pipeline_thread: threading.Thread | None = None
+
+
+def _get_pipeline_loop() -> asyncio.AbstractEventLoop:
+    global _pipeline_loop, _pipeline_thread
+    if _pipeline_loop is None or _pipeline_loop.is_closed():
+        _pipeline_loop = asyncio.new_event_loop()
+        _pipeline_thread = threading.Thread(
+            target=_pipeline_loop.run_forever, daemon=True
+        )
+        _pipeline_thread.start()
+    return _pipeline_loop
 
 
 def _get_runner() -> InMemoryRunner:
@@ -174,6 +196,26 @@ async def _run_pipeline_task(
     js = _get_job_service()
     try:
         runner = _get_runner()
+
+        # Pre-populate story template so narrative_designer doesn't
+        # depend on a tool call that the model sometimes skips.
+        from papertales.tools.story_tools import get_story_template
+
+        template = get_story_template(style, age_group)
+        template_str = json.dumps(template, indent=2)
+        scene_count = template.get("scene_count", 5)
+
+        # Check paper content cache — avoid re-fetching/parsing the same PDF
+        cached_paper = fs.get_cached_paper(paper_id)
+        paper_cached_flag = ""
+        initial_paper_text = ""
+        if cached_paper:
+            logger.info("Paper cache HIT for paper_id=%s (%d chars)", paper_id, len(cached_paper))
+            paper_cached_flag = "true"
+            initial_paper_text = cached_paper
+        else:
+            logger.info("Paper cache MISS for paper_id=%s", paper_id)
+
         session = await runner.session_service.create_session(
             app_name=APP_NAME,
             user_id=uid,
@@ -181,11 +223,14 @@ async def _run_pipeline_task(
                 STATE_USER_PAPER_URL: normalized_url,
                 STATE_USER_AGE_GROUP: age_group,
                 STATE_USER_STYLE: style,
+                STATE_STORY_TEMPLATE: template_str,
+                STATE_SCENE_COUNT: str(scene_count),
+                STATE_PAPER_CACHED: paper_cached_flag,
                 # Pre-populate intermediate keys so downstream agent
                 # instruction templates don't crash if an upstream agent
                 # produces no text output (e.g. audio_narrator with only
                 # tool calls).
-                STATE_PAPER_TEXT: "",
+                STATE_PAPER_TEXT: initial_paper_text,
                 STATE_CONCEPTS: "",
                 STATE_SIMPLIFIED: "",
                 STATE_NARRATIVE: "",
@@ -315,7 +360,65 @@ async def _run_pipeline_task(
             js.fail_job(job_id, "Pipeline did not produce a final story.")
             return
 
+        # Quality gate: narrative_design must be substantial
+        narrative_design = session.state.get(STATE_NARRATIVE, "")
+        narrative_len = len(str(narrative_design))
+        if narrative_len < 1000:
+            logger.error(
+                "Narrative design too short (%d chars) — model likely skipped story design. "
+                "Story would be degraded. Failing job.",
+                narrative_len,
+            )
+            js.fail_job(
+                job_id,
+                "Story design was incomplete. Please try again — this is an intermittent issue.",
+            )
+            return
+
+        # Quality gate: story_illustrator must produce images
+        if not collected_images:
+            logger.error(
+                "No images collected from story_illustrator. "
+                "Story would have no illustrations. Failing job.",
+            )
+            js.fail_job(
+                job_id,
+                "Image generation failed — no illustrations were produced. Please try again.",
+            )
+            return
+
         story = _parse_final_story(str(raw_story), job_id)
+
+        # --- Scene text overlay: use raw STATE_STORY texts as canonical source ---
+        # The story_assembler LLM may rewrite/summarize scene text in its JSON output,
+        # causing a mismatch between the displayed text and the TTS audio (which was
+        # generated from the raw story_illustrator output). Overlaying the extracted
+        # texts ensures what users read matches what they hear.
+        raw_illustrator_story = str(session.state.get(STATE_STORY, ""))
+        canonical_texts = _extract_scene_texts(raw_illustrator_story)
+        scenes = story.get("scenes", [])
+        scene_texts_applied = 0
+        for item in canonical_texts:
+            label = item["label"]
+            text = item["text"]
+            if label.startswith("scene_"):
+                idx = int(label.split("_", 1)[1])
+                if idx < len(scenes):
+                    scenes[idx]["text"] = text
+                    scene_texts_applied += 1
+            elif label == "conclusion" and text:
+                story["conclusionText"] = text
+        logger.info(
+            "Scene text overlay: %d/%d scene texts applied from raw story (%d canonical items)",
+            scene_texts_applied, len(scenes), len(canonical_texts),
+        )
+
+        # Quality gate: warn if generated scene count < expected
+        if len(scenes) < scene_count:
+            logger.warning(
+                "Scene count mismatch: expected %d scenes but got %d",
+                scene_count, len(scenes),
+            )
 
         # Inject captured media into story scenes for GCS persistence
         scenes = story.get("scenes", [])
@@ -337,6 +440,13 @@ async def _run_pipeline_task(
                     idx = int(label.split("_", 1)[1])
                     if idx < len(scenes):
                         scenes[idx]["audioBase64"] = audio
+
+        # Cache parsed paper content for future requests with different age/style
+        if not cached_paper:
+            parsed_paper_content = session.state.get(STATE_PAPER_TEXT, "")
+            if len(str(parsed_paper_content)) >= 500:
+                fs.save_parsed_paper(paper_id, archive_name, normalized_url, str(parsed_paper_content))
+                logger.info("Paper cache SAVED for paper_id=%s (%d chars)", paper_id, len(str(parsed_paper_content)))
 
         # Extract metadata from pipeline state
         field = _extract_field_of_study(session.state.get(STATE_CONCEPTS, ""))
@@ -417,27 +527,25 @@ async def generate_story(
             detail="You already have a story being generated. Please wait for it to finish.",
         )
 
-    # Create job and launch pipeline in a dedicated thread with its own event
-    # loop so that blocking tool functions (TTS, embeddings) don't starve the
-    # main event loop that serves poll requests.
+    # Launch pipeline on a persistent background event loop so that:
+    # 1. Blocking tool functions (TTS, PDF fetch) don't starve the main
+    #    FastAPI loop that serves poll requests.
+    # 2. The singleton InMemoryRunner always runs on the same loop (avoids
+    #    "Event loop is closed" errors from creating/closing per-request loops).
     job = js.create_job(story_id, uid, normalized_url, age_group, style)
 
-    def _run_pipeline_in_thread() -> None:
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(_run_pipeline_task(
-                job_id=story_id,
-                uid=uid,
-                normalized_url=normalized_url,
-                archive_name=archive_name,
-                paper_id=paper_id,
-                age_group=age_group,
-                style=style,
-            ))
-        finally:
-            loop.close()
-
-    threading.Thread(target=_run_pipeline_in_thread, daemon=True).start()
+    asyncio.run_coroutine_threadsafe(
+        _run_pipeline_task(
+            job_id=story_id,
+            uid=uid,
+            normalized_url=normalized_url,
+            archive_name=archive_name,
+            paper_id=paper_id,
+            age_group=age_group,
+            style=style,
+        ),
+        _get_pipeline_loop(),
+    )
 
     return {
         "jobId": story_id,
