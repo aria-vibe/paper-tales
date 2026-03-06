@@ -12,6 +12,7 @@ interface PaperUploaderProps {
   totalStages?: number | null;
   error?: string | null;
   onDismissError?: () => void;
+  activeRequest?: GenerationRequest | null;
 }
 
 const AGE_GROUPS: { value: AgeGroup; label: string }[] = [
@@ -27,10 +28,19 @@ const STORY_STYLES: { value: StoryStyle; label: string }[] = [
   { value: "comic_book", label: "Comic Book" },
 ];
 
-export function PaperUploader({ onSubmit, disabled, getToken, status, stageLabel, currentStage, totalStages, error, onDismissError }: PaperUploaderProps) {
+export function PaperUploader({ onSubmit, disabled, getToken, status, stageLabel, currentStage, totalStages, error, onDismissError, activeRequest }: PaperUploaderProps) {
   const [paperUrl, setPaperUrl] = useState("");
   const [ageGroup, setAgeGroup] = useState<AgeGroup>("10-13");
   const [style, setStyle] = useState<StoryStyle>("adventure");
+
+  // Restore options from an active (resumed) job
+  useEffect(() => {
+    if (activeRequest) {
+      setPaperUrl(activeRequest.paperUrl);
+      setAgeGroup(activeRequest.ageGroup);
+      setStyle(activeRequest.style);
+    }
+  }, [activeRequest]);
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
 
   useEffect(() => {
@@ -159,7 +169,7 @@ function ProgressSection({
   totalStages?: number | null;
 }) {
   const hasStageInfo = status === "processing" && currentStage != null && totalStages != null && totalStages > 0;
-  const progressPct = hasStageInfo ? Math.round(((currentStage! - 0.5) / totalStages!) * 100) : 0;
+  const progressPct = hasStageInfo ? Math.max(0, Math.round(((currentStage! - 0.5) / totalStages!) * 100)) : 0;
   const showBar = hasStageInfo;
 
   return (

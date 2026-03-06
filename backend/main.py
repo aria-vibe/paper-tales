@@ -448,6 +448,27 @@ async def generate_story(
     }
 
 
+@app.get("/api/jobs/active")
+async def get_active_job(user_info: UserInfo = Depends(verify_firebase_token)):
+    js = _get_job_service()
+    active = js.get_active_job(user_info.uid)
+    if not active:
+        return {"active": False}
+
+    job_id = active.get("job_id", active.get("story_id"))
+    return {
+        "active": True,
+        "jobId": job_id,
+        "status": "processing",
+        "currentStage": active.get("current_stage", 0),
+        "totalStages": active.get("total_stages", 8),
+        "stageLabel": active.get("stage_label", "Processing"),
+        "paperUrl": active.get("paper_url", ""),
+        "ageGroup": active.get("age_group", ""),
+        "style": active.get("style", ""),
+    }
+
+
 @app.get("/api/jobs/{job_id}")
 async def get_job_status(job_id: str, user_info: UserInfo = Depends(verify_firebase_token)):
     js = _get_job_service()
@@ -506,6 +527,46 @@ async def get_story(story_id: str, user_info: UserInfo = Depends(verify_firebase
         story["userVote"] = user_vote
 
     return story
+
+
+MEDIA_CONTENT_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+}
+
+MEDIA_FILENAME_RE = re.compile(r"^(scene_\d+_(image|audio)|title_audio|conclusion_audio)\.\w+$")
+
+
+@app.get("/api/stories/{story_id}/media/{filename}")
+async def get_story_media(
+    story_id: str,
+    filename: str,
+    user_info: UserInfo = Depends(verify_firebase_token),
+):
+    """Stream a media file (image/audio) from GCS for the given story."""
+    if not MEDIA_FILENAME_RE.match(filename):
+        raise HTTPException(status_code=400, detail="Invalid media filename.")
+
+    ext = "." + filename.rsplit(".", 1)[-1] if "." in filename else ""
+    content_type = MEDIA_CONTENT_TYPES.get(ext)
+    if not content_type:
+        raise HTTPException(status_code=400, detail="Unsupported media type.")
+
+    fs = _get_firestore_service()
+    data = fs.get_media_blob(story_id, filename)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Media not found.")
+
+    from fastapi.responses import Response
+
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 class VoteRequest(BaseModel):

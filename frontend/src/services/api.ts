@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { GenerationRequest, JobHistoryResponse, JobResponse, QuotaInfo, Story, TopPapersResponse, VoteResponse } from "../types";
+import type { ActiveJobResponse, GenerationRequest, JobHistoryResponse, JobResponse, QuotaInfo, Story, TopPapersResponse, VoteResponse } from "../types";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "",
@@ -60,11 +60,26 @@ export async function getTopPapers(token: string): Promise<TopPapersResponse> {
   return data;
 }
 
+export async function getActiveJob(token: string): Promise<ActiveJobResponse> {
+  const { data } = await api.get("/api/jobs/active", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
 export async function getQuota(token: string): Promise<QuotaInfo> {
   const { data } = await api.get("/api/quota", {
     headers: { Authorization: `Bearer ${token}` },
   });
   return data;
+}
+
+export async function fetchMediaBlobUrl(url: string, token: string): Promise<string> {
+  const { data } = await api.get(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    responseType: "blob",
+  });
+  return URL.createObjectURL(data as Blob);
 }
 
 export async function listUserJobs(token: string, limit = 10): Promise<JobHistoryResponse> {

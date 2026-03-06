@@ -128,13 +128,59 @@ class TestGetJob:
         mock_doc.to_dict.return_value = {
             "status": "processing",
             "created_at": old_time,
+            "completed_at": None,
         }
+        # Both initial read and re-read return the same stale doc
         mock_db.collection().document().get.return_value = mock_doc
 
         result = js.get_job("job-1")
         assert result["status"] == "timed_out"
         assert "timed out" in result["error"]
         mock_db.collection().document().update.assert_called_once()
+
+    def test_does_not_timeout_if_completed_at_set(self, js, mock_db):
+        """If completed_at is already set, skip the timeout — pipeline just finished."""
+        old_time = datetime.now(timezone.utc) - timedelta(minutes=JOB_TIMEOUT_MINUTES + 1)
+        mock_doc = MagicMock()
+        mock_doc.exists = True
+        mock_doc.to_dict.return_value = {
+            "status": "processing",
+            "created_at": old_time,
+            "completed_at": datetime.now(timezone.utc),
+        }
+        mock_db.collection().document().get.return_value = mock_doc
+
+        result = js.get_job("job-1")
+        assert result["status"] == "processing"  # not overwritten to timed_out
+        mock_db.collection().document().update.assert_not_called()
+
+    def test_re_read_prevents_race_with_complete_job(self, js, mock_db):
+        """If re-read shows the job was completed between reads, return fresh data."""
+        old_time = datetime.now(timezone.utc) - timedelta(minutes=JOB_TIMEOUT_MINUTES + 1)
+        now = datetime.now(timezone.utc)
+
+        stale_doc = MagicMock()
+        stale_doc.exists = True
+        stale_doc.to_dict.return_value = {
+            "status": "processing",
+            "created_at": old_time,
+            "completed_at": None,
+        }
+
+        fresh_doc = MagicMock()
+        fresh_doc.exists = True
+        fresh_doc.to_dict.return_value = {
+            "status": "complete",
+            "created_at": old_time,
+            "completed_at": now,
+        }
+
+        # First get() returns stale, second get() (re-read) returns fresh
+        mock_db.collection().document().get.side_effect = [stale_doc, fresh_doc]
+
+        result = js.get_job("job-1")
+        assert result["status"] == "complete"
+        mock_db.collection().document().update.assert_not_called()
 
 
 class TestGetActiveJob:
@@ -169,11 +215,63 @@ class TestGetActiveJob:
             "uid": "uid-1",
             "status": "processing",
             "created_at": old_time,
+            "completed_at": None,
+        }
+        mock_db.collection().where().where().limit().stream.return_value = [mock_doc]
+        # Re-read also returns stale (still processing)
+        fresh_doc = MagicMock()
+        fresh_doc.exists = True
+        fresh_doc.to_dict.return_value = {
+            "status": "processing",
+            "completed_at": None,
+        }
+        mock_db.collection().document().get.return_value = fresh_doc
+
+        result = js.get_active_job("uid-1")
+        assert result is None
+
+    def test_returns_none_if_completed_at_set(self, js, mock_db):
+        """If completed_at is set, the pipeline finished — don't return as active."""
+        now = datetime.now(timezone.utc)
+        mock_doc = MagicMock()
+        mock_doc.id = "job-1"
+        mock_doc.to_dict.return_value = {
+            "job_id": "job-1",
+            "uid": "uid-1",
+            "status": "processing",
+            "created_at": now - timedelta(minutes=5),
+            "completed_at": now,
         }
         mock_db.collection().where().where().limit().stream.return_value = [mock_doc]
 
         result = js.get_active_job("uid-1")
         assert result is None
+
+    def test_active_job_re_read_prevents_race(self, js, mock_db):
+        """If re-read shows complete, don't write timed_out."""
+        old_time = datetime.now(timezone.utc) - timedelta(minutes=JOB_TIMEOUT_MINUTES + 1)
+        mock_doc = MagicMock()
+        mock_doc.id = "job-1"
+        mock_doc.to_dict.return_value = {
+            "job_id": "job-1",
+            "uid": "uid-1",
+            "status": "processing",
+            "created_at": old_time,
+            "completed_at": None,
+        }
+        mock_db.collection().where().where().limit().stream.return_value = [mock_doc]
+        # Re-read shows job was completed by the pipeline thread
+        fresh_doc = MagicMock()
+        fresh_doc.exists = True
+        fresh_doc.to_dict.return_value = {
+            "status": "complete",
+            "completed_at": datetime.now(timezone.utc),
+        }
+        mock_db.collection().document().get.return_value = fresh_doc
+
+        result = js.get_active_job("uid-1")
+        assert result is None
+        mock_db.collection().document().update.assert_not_called()
 
 
 class TestGetUserJobs:

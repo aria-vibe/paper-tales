@@ -33,7 +33,9 @@ export interface Story {
   downvotes?: number;
   userVote?: "up" | "down";
   titleAudioBase64?: string;
+  titleAudioUrl?: string;
   conclusionAudioBase64?: string;
+  conclusionAudioUrl?: string;
   whatWeLearned?: string;
   createdAt: string;
 }
@@ -82,6 +84,18 @@ export interface JobHistoryItem {
 
 export interface JobHistoryResponse {
   jobs: JobHistoryItem[];
+}
+
+export interface ActiveJobResponse {
+  active: boolean;
+  jobId?: string;
+  status?: string;
+  currentStage?: number;
+  totalStages?: number;
+  stageLabel?: string;
+  paperUrl?: string;
+  ageGroup?: AgeGroup;
+  style?: StoryStyle;
 }
 
 export interface VoteResponse {

@@ -117,7 +117,13 @@ class JobService:
         })
 
     def get_job(self, job_id: str) -> dict | None:
-        """Read job; auto-transitions to timed_out if processing > 15min."""
+        """Read job; auto-transitions to timed_out if processing > 15min.
+
+        Guards against a race where the pipeline thread has already completed
+        the job (set completed_at) but the status field hasn't been read yet.
+        Re-reads the document before writing timed_out to avoid overwriting
+        a legitimate completion.
+        """
         doc_ref = self._db.collection(JOBS_COLLECTION).document(job_id)
         doc = doc_ref.get()
         if not doc.exists:
@@ -125,7 +131,7 @@ class JobService:
 
         data = doc.to_dict()
 
-        if data.get("status") == "processing":
+        if data.get("status") == "processing" and data.get("completed_at") is None:
             created = data.get("created_at")
             if created:
                 if hasattr(created, "timestamp"):
@@ -134,6 +140,13 @@ class JobService:
                     created_dt = created
                 elapsed = (datetime.now(timezone.utc) - created_dt).total_seconds() / 60
                 if elapsed > JOB_TIMEOUT_MINUTES:
+                    # Re-read to guard against race with complete_job()
+                    fresh = doc_ref.get()
+                    if fresh.exists:
+                        fresh_data = fresh.to_dict()
+                        if fresh_data.get("status") != "processing" or fresh_data.get("completed_at") is not None:
+                            return fresh_data
+
                     now = datetime.now(timezone.utc)
                     doc_ref.update({
                         "status": "timed_out",
@@ -149,7 +162,8 @@ class JobService:
     def get_active_job(self, uid: str) -> dict | None:
         """Return the user's active (processing) job, or None.
 
-        Also performs timeout check on any found job.
+        Also performs timeout check on any found job, with a re-read guard
+        to avoid overwriting a job that the pipeline thread just completed.
         """
         query = (
             self._db.collection(JOBS_COLLECTION)
@@ -165,6 +179,10 @@ class JobService:
         job_data = docs[0].to_dict()
         job_id = job_data.get("job_id", docs[0].id)
 
+        # Skip timeout check if completed_at already set (race with complete_job)
+        if job_data.get("completed_at") is not None:
+            return None
+
         # Check timeout
         created = job_data.get("created_at")
         if created:
@@ -174,7 +192,15 @@ class JobService:
                 created_dt = created
             elapsed = (datetime.now(timezone.utc) - created_dt).total_seconds() / 60
             if elapsed > JOB_TIMEOUT_MINUTES:
-                self._db.collection(JOBS_COLLECTION).document(job_id).update({
+                # Re-read to guard against race with complete_job()
+                doc_ref = self._db.collection(JOBS_COLLECTION).document(job_id)
+                fresh = doc_ref.get()
+                if fresh.exists:
+                    fresh_data = fresh.to_dict()
+                    if fresh_data.get("status") != "processing" or fresh_data.get("completed_at") is not None:
+                        return None
+
+                doc_ref.update({
                     "status": "timed_out",
                     "error": f"Job timed out after {JOB_TIMEOUT_MINUTES} minutes",
                     "updated_at": datetime.now(timezone.utc),

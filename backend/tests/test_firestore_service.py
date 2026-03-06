@@ -177,18 +177,12 @@ class TestMediaExtraction:
 
 
 class TestMediaRehydration:
-    def test_rehydrates_image_and_audio(self, service, mock_storage):
+    def test_rehydrates_with_urls(self, service, mock_storage):
         bucket = mock_storage.bucket.return_value
-        blob = MagicMock()
 
         def make_blob(path):
             b = MagicMock()
-            if "image" in path:
-                b.download_as_bytes.return_value = SAMPLE_IMAGE_BYTES
-            elif "audio" in path:
-                b.download_as_bytes.return_value = SAMPLE_AUDIO_BYTES
-            else:
-                b.download_as_bytes.side_effect = Exception("not found")
+            b.exists.return_value = True
             return b
 
         bucket.blob.side_effect = make_blob
@@ -196,34 +190,33 @@ class TestMediaRehydration:
         scenes = [{"text": "Hello", "scene_number": 1}]
         hydrated, extra_audio = service._rehydrate_media("s1", 1, scenes)
 
-        assert hydrated[0]["imageBase64"] == SAMPLE_IMAGE_B64
-        assert hydrated[0]["audioBase64"] == SAMPLE_AUDIO_B64
-        # title and conclusion audio also present since mock matches "audio" in path
-        assert "titleAudioBase64" in extra_audio
-        assert "conclusionAudioBase64" in extra_audio
+        assert hydrated[0]["imageUrl"] == "/api/stories/s1/media/scene_0_image.png"
+        assert hydrated[0]["audioUrl"] == "/api/stories/s1/media/scene_0_audio.mp3"
+        assert extra_audio["titleAudioUrl"] == "/api/stories/s1/media/title_audio.mp3"
+        assert extra_audio["conclusionAudioUrl"] == "/api/stories/s1/media/conclusion_audio.mp3"
 
     def test_missing_media_omitted(self, service, mock_storage):
         bucket = mock_storage.bucket.return_value
         blob = MagicMock()
-        blob.download_as_bytes.side_effect = Exception("not found")
+        blob.exists.return_value = False
         bucket.blob.return_value = blob
 
         scenes = [{"text": "Hello"}]
         hydrated, extra_audio = service._rehydrate_media("s1", 1, scenes)
 
-        assert "imageBase64" not in hydrated[0]
-        assert "audioBase64" not in hydrated[0]
+        assert "imageUrl" not in hydrated[0]
+        assert "audioUrl" not in hydrated[0]
         assert extra_audio == {}
 
     def test_original_scenes_not_mutated(self, service, mock_storage):
         bucket = mock_storage.bucket.return_value
         blob = MagicMock()
-        blob.download_as_bytes.side_effect = Exception("not found")
+        blob.exists.return_value = False
         bucket.blob.return_value = blob
 
         scenes = [{"text": "Hello"}]
         service._rehydrate_media("s1", 1, scenes)
-        assert "imageBase64" not in scenes[0]
+        assert "imageUrl" not in scenes[0]
 
 
 # ---------------------------------------------------------------------------

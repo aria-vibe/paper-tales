@@ -14,6 +14,9 @@ story_illustrator = LlmAgent(
     name="story_illustrator",
     model=MODEL_GEMINI_FLASH_IMAGE,
     description="Writes the full illustrated story with interleaved text and images.",
+    # Exclude conversation history to stay within gemini-2.5-flash-image's
+    # 32,768 input-token limit.  All inputs come via state templates.
+    include_contents="none",
     generate_content_config=types.GenerateContentConfig(
         response_modalities=["TEXT", "IMAGE"],
         temperature=1.0,

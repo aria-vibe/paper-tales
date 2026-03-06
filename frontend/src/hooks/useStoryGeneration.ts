@@ -1,6 +1,6 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { GenerationRequest, GenerationStatus, Story } from "../types";
-import { generateStory, getJobStatus } from "../services/api";
+import { generateStory, getActiveJob, getJobStatus } from "../services/api";
 
 const POLL_INTERVAL = 10_000;
 
@@ -31,7 +31,9 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
   const [stageLabel, setStageLabel] = useState<string | null>(null);
   const [currentStage, setCurrentStage] = useState<number | null>(null);
   const [totalStages, setTotalStages] = useState<number | null>(null);
+  const [activeRequest, setActiveRequest] = useState<GenerationRequest | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resumedRef = useRef(false);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -40,12 +42,79 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
     }
   }, []);
 
+  function startPolling(jobId: string) {
+    function schedulePoll() {
+      pollRef.current = setTimeout(async () => {
+        try {
+          const freshToken = await getToken();
+          const job = await getJobStatus(jobId, freshToken);
+
+          if (job.currentStage != null) setCurrentStage(job.currentStage);
+          if (job.totalStages != null) setTotalStages(job.totalStages);
+          if (job.stageLabel) setStageLabel(job.stageLabel);
+
+          if (job.status === "complete" && job.story) {
+            pollRef.current = null;
+            setActiveRequest(null);
+            setStory(job.story);
+            setStatus("complete");
+          } else if (job.status === "error" || job.status === "timed_out") {
+            pollRef.current = null;
+            setActiveRequest(null);
+            setError(job.status === "timed_out"
+              ? "Story generation took too long. Please try again."
+              : "Story generation failed. Please try again.");
+            setStatus("error");
+          } else {
+            schedulePoll();
+          }
+        } catch {
+          // Ignore transient poll errors — schedule next poll
+          schedulePoll();
+        }
+      }, POLL_INTERVAL);
+    }
+    schedulePoll();
+  }
+
+  // On mount, check if the user has an active job and resume polling
+  useEffect(() => {
+    if (resumedRef.current) return;
+    resumedRef.current = true;
+
+    (async () => {
+      try {
+        const token = await getToken();
+        const active = await getActiveJob(token);
+        if (!active.active || !active.jobId) return;
+
+        setStatus("processing");
+        if (active.currentStage != null) setCurrentStage(active.currentStage);
+        if (active.totalStages != null) setTotalStages(active.totalStages);
+        if (active.stageLabel) setStageLabel(active.stageLabel);
+        if (active.paperUrl && active.ageGroup && active.style) {
+          setActiveRequest({
+            paperUrl: active.paperUrl,
+            ageGroup: active.ageGroup,
+            style: active.style,
+          });
+        }
+        startPolling(active.jobId);
+      } catch {
+        // Not signed in yet or network error — ignore
+      }
+    })();
+
+    return () => stopPolling();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function generate(request: GenerationRequest) {
     setStatus("uploading");
     setError(null);
     setStageLabel(null);
     setCurrentStage(null);
     setTotalStages(null);
+    setActiveRequest(null);
     stopPolling();
 
     try {
@@ -68,36 +137,8 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
       if (jobResult.totalStages != null) setTotalStages(jobResult.totalStages);
       if (jobResult.stageLabel) setStageLabel(jobResult.stageLabel);
 
-      function schedulePoll() {
-        pollRef.current = setTimeout(async () => {
-          try {
-            const freshToken = await getToken();
-            const job = await getJobStatus(jobId, freshToken);
-
-            if (job.currentStage != null) setCurrentStage(job.currentStage);
-            if (job.totalStages != null) setTotalStages(job.totalStages);
-            if (job.stageLabel) setStageLabel(job.stageLabel);
-
-            if (job.status === "complete" && job.story) {
-              pollRef.current = null;
-              setStory(job.story);
-              setStatus("complete");
-            } else if (job.status === "error" || job.status === "timed_out") {
-              pollRef.current = null;
-              setError(job.status === "timed_out"
-                ? "Story generation took too long. Please try again."
-                : "Story generation failed. Please try again.");
-              setStatus("error");
-            } else {
-              schedulePoll();
-            }
-          } catch {
-            // Ignore transient poll errors — schedule next poll
-            schedulePoll();
-          }
-        }, POLL_INTERVAL);
-      }
-      schedulePoll();
+      setActiveRequest(request);
+      startPolling(jobId);
     } catch (err: unknown) {
       stopPolling();
       setError(friendlyError(err));
@@ -113,7 +154,8 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
     setStageLabel(null);
     setCurrentStage(null);
     setTotalStages(null);
+    setActiveRequest(null);
   }
 
-  return { status, story, error, generate, reset, stageLabel, currentStage, totalStages };
+  return { status, story, error, generate, reset, stageLabel, currentStage, totalStages, activeRequest };
 }

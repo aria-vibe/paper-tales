@@ -48,18 +48,3 @@ export const FIELD_ICONS: Record<string, string> = {
   "Social Science": "/icons/social-science.png",
   Other: "/icons/other.png",
 };
-
-export const FLOAT_POSITIONS: React.CSSProperties[] = [
-  { top: "8%", left: "3%" },
-  { top: "4%", left: "20%" },
-  { top: "5%", right: "17%" },
-  { top: "9%", right: "2%" },
-  { top: "38%", left: "2%" },
-  { top: "42%", right: "1%" },
-  { bottom: "38%", left: "3%" },
-  { bottom: "42%", right: "2%" },
-  { bottom: "9%", left: "3%" },
-  { bottom: "5%", left: "20%" },
-  { bottom: "4%", right: "17%" },
-  { bottom: "8%", right: "2%" },
-];

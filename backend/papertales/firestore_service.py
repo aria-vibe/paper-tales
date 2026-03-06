@@ -423,47 +423,57 @@ class FirestoreService:
             blob.upload_from_string(item["data"], content_type=item["content_type"])
 
     def _rehydrate_media(self, story_id: str, version: int, scenes: list[dict]) -> tuple[list[dict], dict]:
-        """Attach base64-encoded media back to scenes + return top-level audio.
+        """Attach media URLs (proxy paths) to scenes + return top-level audio URLs.
 
         Returns (hydrated_scenes, extra_audio) where extra_audio may contain
-        ``titleAudioBase64`` and/or ``conclusionAudioBase64``.
+        ``titleAudioUrl`` and/or ``conclusionAudioUrl``.
+
+        Instead of embedding base64 data (which can exceed Cloud Run response
+        size limits), this returns relative URLs that the frontend fetches via
+        the ``/api/stories/{id}/media/...`` proxy endpoint.
         """
         import copy
         hydrated = copy.deepcopy(scenes)
         extra_audio: dict = {}
 
         for i, scene in enumerate(hydrated):
-            # Try image
-            img_path = self._gcs_image_path(story_id, version, i)
-            try:
-                img_blob = self._bucket.blob(img_path)
-                img_data = img_blob.download_as_bytes()
-                scene["imageBase64"] = base64.b64encode(img_data).decode("utf-8")
-            except Exception:
-                pass  # No image for this scene
+            img_blob = self._bucket.blob(self._gcs_image_path(story_id, version, i))
+            if img_blob.exists():
+                scene["imageUrl"] = f"/api/stories/{story_id}/media/scene_{i}_image.png"
 
-            # Try audio
-            audio_path = self._gcs_audio_path(story_id, version, i)
-            try:
-                audio_blob = self._bucket.blob(audio_path)
-                audio_data = audio_blob.download_as_bytes()
-                scene["audioBase64"] = base64.b64encode(audio_data).decode("utf-8")
-            except Exception:
-                pass  # No audio for this scene
+            audio_blob = self._bucket.blob(self._gcs_audio_path(story_id, version, i))
+            if audio_blob.exists():
+                scene["audioUrl"] = f"/api/stories/{story_id}/media/scene_{i}_audio.mp3"
 
         # Title / conclusion audio
-        for path_fn, key in [
-            (self._gcs_title_audio_path, "titleAudioBase64"),
-            (self._gcs_conclusion_audio_path, "conclusionAudioBase64"),
+        for path_fn, filename, key in [
+            (self._gcs_title_audio_path, "title_audio.mp3", "titleAudioUrl"),
+            (self._gcs_conclusion_audio_path, "conclusion_audio.mp3", "conclusionAudioUrl"),
         ]:
-            try:
-                blob = self._bucket.blob(path_fn(story_id, version))
-                data = blob.download_as_bytes()
-                extra_audio[key] = base64.b64encode(data).decode("utf-8")
-            except Exception:
-                pass
+            blob = self._bucket.blob(path_fn(story_id, version))
+            if blob.exists():
+                extra_audio[key] = f"/api/stories/{story_id}/media/{filename}"
 
         return hydrated, extra_audio
+
+    def get_media_blob(self, story_id: str, filename: str) -> bytes | None:
+        """Download a media file from GCS for the given story's current version.
+
+        Returns the raw bytes or None if not found.
+        """
+        doc_ref = self._db.collection(STORIES_COLLECTION).document(story_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return None
+
+        version = doc.to_dict().get("current_version", 1)
+        path = f"stories/{story_id}/v{version}/{filename}"
+        blob = self._bucket.blob(path)
+
+        if not blob.exists():
+            return None
+
+        return blob.download_as_bytes()
 
     def _build_story_from_firestore(self, story_id: str, data: dict) -> dict:
         """Reconstruct full story response from Firestore data + GCS media."""

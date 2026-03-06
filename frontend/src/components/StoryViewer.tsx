@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import type { Story } from "../types";
+import type { Story, StoryScene } from "../types";
+import { useAuthMedia } from "../hooks/useAuthMedia";
 import { VoteButtons } from "./VoteButtons";
 
 interface StoryViewerProps {
@@ -71,6 +72,97 @@ function GlossaryText({
   );
 }
 
+function AuthImage({
+  getToken,
+  imageUrl,
+  imageBase64,
+  alt,
+  loading,
+}: {
+  getToken?: () => Promise<string>;
+  imageUrl?: string;
+  imageBase64?: string;
+  alt: string;
+  loading?: "lazy" | "eager";
+}) {
+  const src = useAuthMedia(getToken, imageUrl, imageBase64, "image/png");
+  if (!src) return null;
+  return <img src={src} alt={alt} loading={loading} />;
+}
+
+function AuthAudio({
+  getToken,
+  audioUrl,
+  audioBase64,
+  className,
+}: {
+  getToken?: () => Promise<string>;
+  audioUrl?: string;
+  audioBase64?: string;
+  className?: string;
+}) {
+  const src = useAuthMedia(getToken, audioUrl, audioBase64, "audio/mpeg");
+  if (!src) return null;
+  return (
+    <audio controls src={src} className={className}>
+      Your browser does not support the audio element.
+    </audio>
+  );
+}
+
+function ScenePage({
+  scene,
+  index,
+  isConclusion,
+  currentScene,
+  glossary,
+  getToken,
+}: {
+  scene: StoryScene;
+  index: number;
+  isConclusion: boolean;
+  currentScene: number;
+  glossary: Record<string, string>;
+  getToken?: () => Promise<string>;
+}) {
+  const hasImage = !!(scene.imageBase64 || scene.imageUrl);
+  const hasAudio = !!(scene.audioBase64 || scene.audioUrl);
+
+  return (
+    <div className="book-page-slide">
+      <div className={`book-page${isConclusion ? " book-page-conclusion" : ""}`}>
+        {hasImage && (
+          <div className="book-illustration">
+            <AuthImage
+              getToken={getToken}
+              imageUrl={scene.imageUrl}
+              imageBase64={scene.imageBase64}
+              alt={isConclusion ? "What we learned" : `Scene ${index + 1}`}
+              loading={Math.abs(index - currentScene) > 1 ? "lazy" : "eager"}
+            />
+          </div>
+        )}
+        <div className="book-text-block">
+          {isConclusion && (
+            <div className="book-conclusion-badge">What We Learned</div>
+          )}
+          <p className="book-text">
+            <GlossaryText text={scene.text} glossary={glossary} />
+          </p>
+          {hasAudio && (
+            <AuthAudio
+              getToken={getToken}
+              audioUrl={scene.audioUrl}
+              audioBase64={scene.audioBase64}
+              className="book-audio"
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function StoryViewer({ story, getToken }: StoryViewerProps) {
   const [currentScene, setCurrentScene] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -84,7 +176,7 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
   const allScenes = [
     ...story.scenes,
     ...(story.whatWeLearned
-      ? [{ text: story.whatWeLearned, audioBase64: story.conclusionAudioBase64 }]
+      ? [{ text: story.whatWeLearned, audioBase64: story.conclusionAudioBase64, audioUrl: story.conclusionAudioUrl }]
       : []),
   ];
   const total = allScenes.length;
@@ -155,15 +247,12 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
       <header className="story-header">
         <div className="story-title-row">
           <h1>{story.title}</h1>
-          {story.titleAudioBase64 && (
-            <audio
-              controls
-              src={`data:audio/mpeg;base64,${story.titleAudioBase64}`}
-              className="title-audio-inline"
-            >
-              Your browser does not support the audio element.
-            </audio>
-          )}
+          <AuthAudio
+            getToken={getToken}
+            audioUrl={story.titleAudioUrl}
+            audioBase64={story.titleAudioBase64}
+            className="title-audio-inline"
+          />
         </div>
         <div className="story-meta-row">
           <span className="story-meta-tag">
@@ -233,53 +322,17 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
             className="book-track"
             style={{ transform: `translateX(-${currentScene * 100}%)` }}
           >
-            {allScenes.map((s, i) => {
-              const isConcl =
-                story.whatWeLearned && i === allScenes.length - 1;
-              return (
-                <div key={i} className="book-page-slide">
-                  <div className={`book-page${isConcl ? " book-page-conclusion" : ""}`}>
-                    {/* Image */}
-                    {(s.imageBase64 || s.imageUrl) && (
-                      <div className="book-illustration">
-                        <img
-                          src={
-                            s.imageBase64
-                              ? `data:image/png;base64,${s.imageBase64}`
-                              : s.imageUrl
-                          }
-                          alt={isConcl ? "What we learned" : `Scene ${i + 1}`}
-                          loading={Math.abs(i - currentScene) > 1 ? "lazy" : "eager"}
-                        />
-                      </div>
-                    )}
-
-                    {/* Text */}
-                    <div className="book-text-block">
-                      {isConcl && (
-                        <div className="book-conclusion-badge">What We Learned</div>
-                      )}
-                      <p className="book-text">
-                        <GlossaryText text={s.text} glossary={glossary} />
-                      </p>
-                      {(s.audioBase64 || s.audioUrl) && (
-                        <audio
-                          controls
-                          src={
-                            s.audioBase64
-                              ? `data:audio/mpeg;base64,${s.audioBase64}`
-                              : s.audioUrl
-                          }
-                          className="book-audio"
-                        >
-                          Your browser does not support the audio element.
-                        </audio>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {allScenes.map((s, i) => (
+              <ScenePage
+                key={i}
+                scene={s}
+                index={i}
+                isConclusion={!!(story.whatWeLearned && i === allScenes.length - 1)}
+                currentScene={currentScene}
+                glossary={glossary}
+                getToken={getToken}
+              />
+            ))}
           </div>
         </div>
 
