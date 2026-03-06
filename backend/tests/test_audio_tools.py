@@ -8,6 +8,14 @@ import pytest
 from papertales.tools.audio_tools import get_voice_for_age_group, synthesize_speech
 
 
+@pytest.fixture(autouse=True)
+def _reset_singleton():
+    import papertales.tools.audio_tools as m
+    m._genai_client = None
+    yield
+    m._genai_client = None
+
+
 # ===========================================================================
 # TestGetVoiceForAgeGroup
 # ===========================================================================

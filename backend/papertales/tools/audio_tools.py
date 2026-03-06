@@ -7,6 +7,15 @@ import wave
 from google import genai
 from google.genai import types
 
+_genai_client: genai.Client | None = None
+
+
+def _get_genai_client() -> genai.Client:
+    global _genai_client
+    if _genai_client is None:
+        _genai_client = genai.Client()
+    return _genai_client
+
 
 def get_voice_for_age_group(age_group: str) -> dict:
     """Get recommended TTS voice settings for a given age group.
@@ -52,7 +61,7 @@ def synthesize_speech(
         return {"error": "Text is empty — nothing to synthesize"}
 
     try:
-        client = genai.Client()
+        client = _get_genai_client()
 
         response = client.models.generate_content(
             model="gemini-2.5-flash-preview-tts",

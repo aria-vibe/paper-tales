@@ -4,6 +4,7 @@ This is a non-LLM agent: it extracts scene text via simple parsing and calls
 the TTS tools directly, avoiding Gemini API calls and rate-limit issues.
 """
 
+import asyncio
 import logging
 import re
 from collections.abc import AsyncGenerator
@@ -132,13 +133,22 @@ class AudioNarratorAgent(BaseAgent):
             )
             return
 
-        # Synthesize each narration item
+        # Synthesize all narration items in parallel
+        loop = asyncio.get_event_loop()
+        tasks = [
+            loop.run_in_executor(None, synthesize_speech, item["text"], voice_name)
+            for item in narration_items
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
         successful = 0
         failed = 0
         rate_limited = False
-        for item in narration_items:
+        for item, result in zip(narration_items, results):
             label = item["label"]
-            result = synthesize_speech(item["text"], voice_name)
+
+            if isinstance(result, Exception):
+                result = {"error": f"TTS synthesis failed: {result}"}
 
             if result.get("rate_limited"):
                 logger.warning(

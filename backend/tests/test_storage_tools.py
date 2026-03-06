@@ -9,6 +9,16 @@ import pytest
 from papertales.tools.storage_tools import save_to_firestore, upload_to_gcs
 
 
+@pytest.fixture(autouse=True)
+def _reset_singletons():
+    import papertales.tools.storage_tools as m
+    m._firestore_client = None
+    m._storage_client = None
+    yield
+    m._firestore_client = None
+    m._storage_client = None
+
+
 # ===========================================================================
 # TestSaveToFirestore
 # ===========================================================================

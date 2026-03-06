@@ -12,6 +12,15 @@ logger = logging.getLogger(__name__)
 EMBEDDING_MODEL = "gemini-embedding-001"
 CHUNK_SIZE = 500  # words per chunk
 
+_genai_client: genai.Client | None = None
+
+
+def _get_genai_client() -> genai.Client:
+    global _genai_client
+    if _genai_client is None:
+        _genai_client = genai.Client()
+    return _genai_client
+
 
 @retry(
     stop=stop_after_attempt(5),
@@ -49,6 +58,21 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=2, max=60),
+    retry=retry_if_exception_type((GoogleAPIError, ConnectionError)),
+    before_sleep=lambda rs: logger.warning(
+        "Batch embedding API retry attempt %d after %s", rs.attempt_number, rs.outcome.exception()
+    ),
+    reraise=True,
+)
+def _batch_embed(client: genai.Client, chunks: list[str]) -> list[list[float]]:
+    """Embed multiple text chunks in a single API call."""
+    result = client.models.embed_content(model=EMBEDDING_MODEL, contents=chunks)
+    return [e.values for e in result.embeddings]
+
+
 def _average_vectors(vectors: list[list[float]]) -> list[float]:
     """Average a list of embedding vectors."""
     if not vectors:
@@ -82,18 +106,14 @@ def compare_semantic_similarity(
         return {"error": "Generated text is empty."}
 
     try:
-        client = genai.Client()
+        client = _get_genai_client()
 
-        # Chunk and embed both texts (with retry on transient errors)
+        # Chunk and embed both texts (batch API for fewer round trips)
         original_chunks = _chunk_text(original_text)
         generated_chunks = _chunk_text(generated_text)
 
-        original_embeddings = [
-            _embed_content(client, chunk) for chunk in original_chunks
-        ]
-        generated_embeddings = [
-            _embed_content(client, chunk) for chunk in generated_chunks
-        ]
+        original_embeddings = _batch_embed(client, original_chunks)
+        generated_embeddings = _batch_embed(client, generated_chunks)
 
         # Average the chunk embeddings
         avg_original = _average_vectors(original_embeddings)

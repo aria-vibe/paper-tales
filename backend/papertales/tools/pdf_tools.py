@@ -16,6 +16,15 @@ _HTTP_HEADERS = {
     "User-Agent": "PaperTalesBot/1.0 (academic research tool; +https://github.com/anthropics)"
 }
 
+_http_client: httpx.Client | None = None
+
+
+def _get_http_client() -> httpx.Client:
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.Client(timeout=60, follow_redirects=True, headers=_HTTP_HEADERS)
+    return _http_client
+
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
@@ -162,9 +171,9 @@ def fetch_arxiv_paper(arxiv_url: str) -> dict:
     logger.info("Fetching arXiv PDF: %s", pdf_url)
 
     try:
-        with httpx.Client(timeout=60, follow_redirects=True, headers=_HTTP_HEADERS) as client:
-            resp = client.get(pdf_url)
-            resp.raise_for_status()
+        client = _get_http_client()
+        resp = client.get(pdf_url)
+        resp.raise_for_status()
 
         content_type = resp.headers.get("content-type", "")
         logger.info("arXiv response: HTTP %d, content-type=%s, size=%d",
@@ -234,11 +243,11 @@ def fetch_paper_from_url(paper_url: str) -> dict:
     tmp_path = None
     try:
         resp = None
+        client = _get_http_client()
         for pdf_url in pdf_urls_to_try:
             try:
-                with httpx.Client(timeout=60, follow_redirects=True, headers=_HTTP_HEADERS) as client:
-                    resp = client.get(pdf_url)
-                    resp.raise_for_status()
+                resp = client.get(pdf_url)
+                resp.raise_for_status()
                 content_type = resp.headers.get("content-type", "")
                 if "pdf" in content_type or resp.content[:5] == b"%PDF-":
                     break

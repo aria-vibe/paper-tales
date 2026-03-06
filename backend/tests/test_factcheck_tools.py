@@ -13,6 +13,14 @@ from papertales.tools.factcheck_tools import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _reset_singleton():
+    import papertales.tools.factcheck_tools as m
+    m._genai_client = None
+    yield
+    m._genai_client = None
+
+
 # ===========================================================================
 # Unit tests for helper functions
 # ===========================================================================

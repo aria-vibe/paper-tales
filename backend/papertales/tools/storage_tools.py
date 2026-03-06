@@ -5,6 +5,23 @@ import json
 
 from google.cloud import firestore, storage
 
+_firestore_client: firestore.Client | None = None
+_storage_client: storage.Client | None = None
+
+
+def _get_firestore_client() -> firestore.Client:
+    global _firestore_client
+    if _firestore_client is None:
+        _firestore_client = firestore.Client()
+    return _firestore_client
+
+
+def _get_storage_client() -> storage.Client:
+    global _storage_client
+    if _storage_client is None:
+        _storage_client = storage.Client()
+    return _storage_client
+
 
 def save_to_firestore(collection: str, document_id: str, data: str) -> dict:
     """Save a document to Firestore.
@@ -23,7 +40,7 @@ def save_to_firestore(collection: str, document_id: str, data: str) -> dict:
         return {"error": f"Invalid JSON data: {e}"}
 
     try:
-        db = firestore.Client()
+        db = _get_firestore_client()
         db.collection(collection).document(document_id).set(data_dict)
         return {
             "success": True,
@@ -52,7 +69,7 @@ def upload_to_gcs(
         A dict with 'success', 'gcs_uri', and 'public_url', or 'error'.
     """
     try:
-        client = storage.Client()
+        client = _get_storage_client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(blob_path)
 
