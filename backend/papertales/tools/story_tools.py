@@ -14,8 +14,9 @@ _STYLE_TEMPLATES = {
             ),
             "rising_action": (
                 "The hero meets a wise mentor and faces magical trials. Each "
-                "challenge teaches a core scientific concept disguised as an "
-                "enchantment or riddle."
+                "challenge teaches a core scientific concept through an "
+                "enchantment or riddle — but the underlying science must be "
+                "stated accurately within the narrative."
             ),
             "climax": (
                 "The hero confronts the central mystery — the hardest concept — "
@@ -43,6 +44,11 @@ _STYLE_TEMPLATES = {
             "Storybook watercolor with soft lighting, hand-drawn feel. Characters "
             "have expressive faces. Backgrounds feature enchanted forests, glowing "
             "objects, and gentle sparkles. Think classic fairy-tale picture book."
+        ),
+        "accuracy_note": (
+            "Magic and enchantments frame the science but must not contradict it. "
+            "When a concept is presented as 'magic', the story must also reveal "
+            "the real science behind it before the scene ends."
         ),
     },
     "adventure": {
@@ -86,6 +92,11 @@ _STYLE_TEMPLATES = {
             "have gear and expressive body language. Think Indiana Jones meets "
             "Magic School Bus."
         ),
+        "accuracy_note": (
+            "Obstacles must be solved using real science, not genre shortcuts. "
+            "The scientific method or principle must be correctly applied in the "
+            "solution — no 'it just works' hand-waving."
+        ),
     },
     "sci_fi": {
         "structure": {
@@ -127,6 +138,11 @@ _STYLE_TEMPLATES = {
             "and cosmic backgrounds. Clean lines, luminous effects. Characters wear "
             "futuristic gear. Think space station interiors and alien landscapes."
         ),
+        "accuracy_note": (
+            "Futuristic technology must be grounded in the real science from the paper. "
+            "Alien phenomena should parallel, not contradict, the actual findings. "
+            "The 'captain's log' should state the real-world science clearly."
+        ),
     },
     "comic_book": {
         "structure": {
@@ -143,7 +159,8 @@ _STYLE_TEMPLATES = {
             "climax": (
                 "Full-page spread: the hero faces the villain/problem head-on. "
                 "The winning move requires applying the core scientific concept "
-                "in a visually spectacular way."
+                "in a visually spectacular way. The 'science saves the day' moment "
+                "must reflect how the science actually works — no made-up powers."
             ),
             "resolution": (
                 "Wrap-up panels show the aftermath. The hero explains what they "
@@ -167,6 +184,11 @@ _STYLE_TEMPLATES = {
             "Bold comic book style with thick black outlines, dynamic panel layouts, "
             "and halftone shading. Speech bubbles, sound effects (POW! ZAP!), and "
             "motion lines. Bright primary colors. Think Marvel meets Bill Nye."
+        ),
+        "accuracy_note": (
+            "Superpowers and villains frame the science but must not distort it. "
+            "The 'science corner' panel must state the real findings accurately. "
+            "The hero's powers must reflect how the science actually works."
         ),
     },
 }
@@ -193,7 +215,7 @@ _AGE_GUIDELINES = {
         "sentence_length": "10-18 words per sentence",
         "paragraph_length": "3-5 sentences per paragraph",
         "concepts_per_scene": 2,
-        "scene_count": 5,
+        "scene_count": 4,
         "reading_level": "Grades 5-8",
         "content_notes": (
             "Can handle cause-and-effect reasoning. Introduce real scientific terms "
@@ -205,7 +227,7 @@ _AGE_GUIDELINES = {
         "sentence_length": "15-25 words per sentence",
         "paragraph_length": "4-6 sentences per paragraph",
         "concepts_per_scene": 2,
-        "scene_count": 6,
+        "scene_count": 4,
         "reading_level": "Grades 9-12",
         "content_notes": (
             "Can handle nuance, ambiguity, and ethical dimensions of science. "
@@ -240,6 +262,10 @@ _DEFAULT_STYLE = {
         "Colorful, expressive illustrations with clear character designs "
         "and engaging backgrounds. Suitable for the target age group."
     ),
+    "accuracy_note": (
+        "Genre framing must not contradict the science from the paper. "
+        "Every scene must accurately represent the scientific concepts it teaches."
+    ),
 }
 
 _DEFAULT_AGE = {
@@ -247,7 +273,7 @@ _DEFAULT_AGE = {
     "sentence_length": "10-18 words per sentence",
     "paragraph_length": "3-5 sentences per paragraph",
     "concepts_per_scene": 1,
-    "scene_count": 5,
+    "scene_count": 4,
     "reading_level": "General",
     "content_notes": "Keep language clear and concepts grounded with examples.",
 }
@@ -293,4 +319,5 @@ def get_story_template(style: str, age_group: str) -> dict:
             "reading_level": age_guidelines["reading_level"],
             "content_notes": age_guidelines["content_notes"],
         },
+        "accuracy_note": style_template.get("accuracy_note", "Genre framing must not contradict the science."),
     }

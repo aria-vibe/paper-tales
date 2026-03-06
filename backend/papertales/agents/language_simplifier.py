@@ -55,7 +55,10 @@ Target age group: {age_group}
 
 1. Read all sections from the extracted concepts (PAPER SUMMARY, CORE CONCEPTS, KEY TERMS, etc.)
 2. Rewrite every section using age-appropriate language following the guidelines above
-3. Create vivid analogies for each concept — make them memorable and fun
+3. Create vivid analogies for each concept — make them memorable and fun. \
+IMPORTANT: Every analogy must SUPPLEMENT, not REPLACE, the actual science. After each analogy, \
+include a "Reality check" sentence that states the actual scientific fact plainly. \
+Example: "It's like a tiny factory!" → Reality check: "Mitochondria are organelles that produce ATP through cellular respiration."
 4. Identify elements that will make great story material (visual concepts, emotional hooks)
 5. After writing your output, call the `score_readability` tool on your SIMPLIFIED SUMMARY \
 paragraph to verify the grade level matches the target age group
@@ -91,6 +94,14 @@ you should pass to the score_readability tool for verification.]
 - Main ideas to teach: [bullet list of the core concepts suitable for a story]
 - Emotional hooks: [what makes this exciting, surprising, or important to a kid]
 - Visual concepts: [things that can be vividly drawn or illustrated]
+
+### SCIENCE ANCHOR CHECK
+For each Science Anchor from the extracted concepts, verify it is preserved:
+| Anchor | Simplified Version | Status |
+|--------|-------------------|--------|
+| [Original anchor fact] | [How you simplified it] | PRESERVED / PARTIAL |
+
+If any anchor is PARTIAL, explain what was lost and provide a corrected version.
 
 ### READABILITY CHECK
 - Target age group: {age_group}

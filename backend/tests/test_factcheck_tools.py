@@ -8,6 +8,8 @@ from papertales.tools.factcheck_tools import (
     _average_vectors,
     _chunk_text,
     _cosine_similarity,
+    _score_paragraph,
+    compare_claim_coverage,
     compare_semantic_similarity,
     extract_key_claims,
 )
@@ -170,6 +172,21 @@ class TestCompareSemanticSimilarity:
 # ===========================================================================
 
 
+class TestScoreParagraph:
+    def test_paragraph_with_factual_indicators_scores_higher(self):
+        factual = "The study demonstrated that X significantly increased Y by 30 percent compared to the control group."
+        generic = "This section describes the methodology used in the research project for analysis."
+        assert _score_paragraph(factual) > _score_paragraph(generic)
+
+    def test_paragraph_with_numbers_gets_bonus(self):
+        with_num = "The temperature was measured at 25 degrees during the experiment."
+        without_num = "The temperature was measured during the experiment in the lab."
+        assert _score_paragraph(with_num) > _score_paragraph(without_num)
+
+    def test_empty_paragraph(self):
+        assert _score_paragraph("") == 0.0
+
+
 class TestExtractKeyClaims:
     def test_valid_text_returns_claims(self):
         text = (
@@ -224,3 +241,113 @@ class TestExtractKeyClaims:
         result = extract_key_claims(text)
 
         assert result["count"] == 2
+
+    def test_default_max_claims_is_15(self):
+        """Default max_claims should be 15."""
+        paragraphs = [
+            f"This is paragraph number {i} and it found significant results that demonstrated important findings."
+            for i in range(20)
+        ]
+        text = "\n\n".join(paragraphs)
+        result = extract_key_claims(text)
+        assert result["count"] <= 15
+
+    def test_priority_sections_ranked_higher(self):
+        """Paragraphs from Abstract/Results/Conclusion should be prioritized."""
+        text = (
+            "## Introduction\n\n"
+            "This is background material about the general topic of study in this field of research.\n\n"
+            "## Abstract\n\n"
+            "Our results demonstrated that the treatment significantly increased survival rates by 45 percent.\n\n"
+            "## Methods\n\n"
+            "We collected data using standard laboratory procedures and equipment for analysis purposes."
+        )
+        result = extract_key_claims(text, max_claims=1)
+        assert result["count"] == 1
+        # The abstract paragraph should be ranked first
+        assert "45 percent" in result["claims"][0]
+
+
+# ===========================================================================
+# TestCompareClaimCoverage (mocked embeddings)
+# ===========================================================================
+
+
+class TestCompareClaimCoverage:
+    @patch("papertales.tools.factcheck_tools.genai.Client")
+    def test_valid_inputs_returns_coverage(self, mock_client_cls):
+        """Should return per-claim coverage results."""
+        mock_client = mock_client_cls.return_value
+        mock_embedding = MagicMock()
+        mock_embedding.values = [0.7, 0.7, 0.7]
+        mock_result = MagicMock()
+        mock_result.embeddings = [mock_embedding]
+        mock_client.models.embed_content.return_value = mock_result
+
+        paper = (
+            "Photosynthesis is the process by which plants convert sunlight "
+            "into chemical energy stored in glucose molecules through a complex "
+            "series of biochemical reactions in the chloroplasts."
+        )
+        result = compare_claim_coverage(
+            paper,
+            "A story about how plants make food from sunlight using energy.",
+        )
+
+        assert "error" not in result
+        assert "claim_results" in result
+        assert "total_claims" in result
+        assert "covered_claims" in result
+        assert "coverage_percentage" in result
+        assert "overall_status" in result
+
+    @patch("papertales.tools.factcheck_tools.genai.Client")
+    def test_with_provided_claims(self, mock_client_cls):
+        """Should use pre-provided claims instead of extracting."""
+        mock_client = mock_client_cls.return_value
+        mock_embedding = MagicMock()
+        mock_embedding.values = [0.8, 0.8, 0.8]
+        mock_result = MagicMock()
+        mock_result.embeddings = [mock_embedding]
+        mock_client.models.embed_content.return_value = mock_result
+
+        claims = ["Plants convert sunlight to energy", "Chlorophyll is green"]
+        result = compare_claim_coverage("", "Story about plants.", claims=claims)
+
+        assert "error" not in result
+        assert result["total_claims"] == 2
+
+    def test_empty_story_returns_error(self):
+        result = compare_claim_coverage("Paper text.", "")
+        assert "error" in result
+
+    def test_empty_paper_and_no_claims_returns_error(self):
+        result = compare_claim_coverage("", "Story text.")
+        assert "error" in result
+
+    @patch("papertales.tools.factcheck_tools.genai.Client")
+    def test_json_string_claims(self, mock_client_cls):
+        """Should handle claims passed as JSON string (ADK behavior)."""
+        mock_client = mock_client_cls.return_value
+        mock_embedding = MagicMock()
+        mock_embedding.values = [0.5, 0.5]
+        mock_result = MagicMock()
+        mock_result.embeddings = [mock_embedding]
+        mock_client.models.embed_content.return_value = mock_result
+
+        import json
+        claims_str = json.dumps(["Claim one with enough words", "Claim two with enough words"])
+        result = compare_claim_coverage("", "Story text here.", claims=claims_str)
+
+        assert "error" not in result
+        assert result["total_claims"] == 2
+
+    @patch("papertales.tools.factcheck_tools.genai.Client")
+    def test_api_exception_returns_error(self, mock_client_cls):
+        mock_client = mock_client_cls.return_value
+        mock_client.models.embed_content.side_effect = Exception("API error")
+
+        result = compare_claim_coverage(
+            "Paper text.", "Story text.", claims=["A claim here"]
+        )
+        assert "error" in result

@@ -10,12 +10,17 @@ narrative_designer = LlmAgent(
     description="Designs the narrative structure and plot for the illustrated story.",
     include_contents="none",
     instruction="""You are a master storyteller and children's book designer who transforms \
-simplified scientific content into captivating, illustrated story outlines.
+simplified scientific content into captivating, illustrated story outlines. Your stories \
+are BOTH entertaining AND scientifically accurate. You never sacrifice factual correctness \
+for dramatic effect — the real science IS the drama.
 
 ## INPUT
 
 Simplified scientific content from the Language Simplifier:
 {simplified_content}
+
+Science anchors and original concepts from the paper:
+{extracted_concepts}
 
 Story style: {story_style}
 Age group: {age_group}
@@ -43,6 +48,8 @@ Assign each concept to 1-2 scenes where it will be naturally taught through the 
 resolution). The total number of scenes should match the template's `scene_count`. Each scene must:
    - Advance the plot AND teach a concept
    - Include specific dialogue that makes the concept memorable
+   - Include a **Science fact** annotation: the actual scientific fact this scene communicates
+   - NOT contradict anything in the SCIENCE ANCHORS — genre framing must not distort the science
    - Have a detailed illustration prompt describing exactly what should be drawn
 
 4. **Write illustration prompts** that are detailed enough for an AI image generator. Include:
@@ -71,6 +78,7 @@ Visual: [Detailed physical description — hair, clothes, distinguishing feature
 character actions and dialogue context]
 **Key Dialogue**: "[An actual line of dialogue that teaches or introduces a concept]"
 **Scientific Concept**: [Which simplified concept this scene teaches]
+**Science Fact**: [The actual scientific fact from the paper that this scene communicates — must not contradict the science anchors]
 **Illustration Prompt**: [Detailed visual description: setting, character positions, \
 actions, key objects, lighting, art style cues, color palette. 3-4 sentences minimum.]
 
@@ -79,9 +87,19 @@ actions, key objects, lighting, art style cues, color palette. 3-4 sentences min
 **Description**: ...
 **Key Dialogue**: "..."
 **Scientific Concept**: ...
+**Science Fact**: ...
 **Illustration Prompt**: ...
 
 [Continue for all scenes — typically 4-6 depending on age group]
+
+### SCIENCE ANCHOR MAPPING
+Map each science anchor to the scene(s) that communicate it:
+| Science Anchor | Scene(s) | How It's Communicated |
+|---------------|----------|----------------------|
+| [Anchor 1 from extracted concepts] | Scene N | [How the story conveys this fact] |
+| [Anchor 2] | Scene N | [How] |
+
+Every anchor MUST appear in at least one scene. If an anchor is missing, add it to a scene.
 
 ### STORY ARC SUMMARY
 [One paragraph describing the complete emotional and educational journey. What does the \

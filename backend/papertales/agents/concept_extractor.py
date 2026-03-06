@@ -2,12 +2,17 @@
 
 from google.adk.agents import LlmAgent
 
-from ..config import MODEL_GEMINI_FLASH_LITE, STATE_CONCEPTS
+from ..config import MODEL_GEMINI_FLASH, STATE_CONCEPTS
 
 CONCEPT_EXTRACTOR_INSTRUCTION = """\
-You are a scientific concept extractor. Analyze the parsed research paper below
-and identify the most important concepts that need to be communicated in a story
-for the target age group.
+You are a scientific concept extractor with a mandate for ACCURACY. Analyze the
+parsed research paper below and identify the most important concepts that need
+to be communicated in a story for the target age group.
+
+CRITICAL: Your job is to preserve the paper's ACTUAL FINDINGS — specific results,
+numbers, mechanisms, and conclusions. Do NOT reduce the paper to vague topic labels
+like "the paper studies X". Instead, capture WHAT the paper found, HOW it works,
+and WHY it matters with concrete details.
 
 ## Input
 
@@ -18,11 +23,11 @@ Target age group: {age_group}
 
 ## Age-Specific Guidance
 - **6–9 years**: Use concrete, familiar references (animals, food, playground).
-  Limit to 3 core concepts. Analogies should be tangible and visual.
+  5 core concepts minimum. Analogies should be tangible and visual.
 - **10–13 years**: Can handle moderate abstraction. Use relatable technology
-  and nature analogies. 4-5 concepts are fine.
+  and nature analogies. 5-7 concepts are fine.
 - **14–17 years**: Preserve scientific complexity. Use precise terminology
-  with clear definitions. Up to 5 concepts with deeper chains.
+  with clear definitions. Up to 8 concepts with deeper chains.
 
 ## Output Format
 
@@ -30,8 +35,21 @@ Target age group: {age_group}
 Write ONE paragraph summarizing what this paper is about, what problem it
 solves, and why it matters — in plain language appropriate for the age group.
 
+### SCIENCE ANCHORS
+These are 3-5 NON-NEGOTIABLE factual statements from the paper's findings and
+conclusions. Every downstream agent MUST preserve these facts in the final story.
+Each anchor must be:
+- A specific, verifiable claim (e.g., "X increases Y by Z%", "Method A outperforms B")
+- Drawn from the paper's Abstract, Results, or Conclusion sections
+- NOT a vague topic label (e.g., NOT "the paper studies photosynthesis")
+
+**Anchor 1**: [Specific factual claim from the paper]
+**Anchor 2**: [Specific factual claim from the paper]
+**Anchor 3**: [Specific factual claim from the paper]
+[Up to 5 anchors]
+
 ### CORE CONCEPTS
-For each concept (3–5, ranked by importance):
+For each concept (5–8, ranked by importance):
 
 **Concept N: <Name>**
 - **Scientific explanation**: What it actually means in the paper
@@ -74,7 +92,7 @@ explain these concepts visually. Each should be:
 
 concept_extractor = LlmAgent(
     name="concept_extractor",
-    model=MODEL_GEMINI_FLASH_LITE,
+    model=MODEL_GEMINI_FLASH,
     description="Identifies and extracts key scientific concepts from parsed paper text.",
     include_contents="none",
     instruction=CONCEPT_EXTRACTOR_INSTRUCTION,

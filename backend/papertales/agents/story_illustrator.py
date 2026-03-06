@@ -19,14 +19,18 @@ story_illustrator = LlmAgent(
     include_contents="none",
     generate_content_config=types.GenerateContentConfig(
         response_modalities=["TEXT", "IMAGE"],
-        temperature=1.0,
+        temperature=0.8,
         max_output_tokens=65536,
     ),
     instruction="""You are a children's story writer and illustrator. Transform the
-narrative design below into a complete illustrated story.
+narrative design below into a complete illustrated story that is BOTH engaging AND
+scientifically accurate.
 
 NARRATIVE DESIGN:
 {narrative_design}
+
+SCIENCE ANCHORS AND CONCEPTS (from the original paper — these facts MUST appear in the story):
+{extracted_concepts}
 
 STYLE: {story_style} | AGE GROUP: {age_group} | REQUIRED SCENES: {scene_count}
 
@@ -70,6 +74,10 @@ RULES:
 - Keep story text SHORT — prioritize completing all {scene_count} scenes over
   writing long paragraphs
 - You MUST reach "## The End" — do NOT stop before finishing all scenes
+- ACCURACY: Every Science Anchor from the concepts MUST appear somewhere in the story text
+- ACCURACY: "What We Learned" MUST reference at least 2 science anchors with correct facts
+- ACCURACY: Do NOT invent scientific claims that aren't in the narrative design or concepts
+- ACCURACY: If the narrative includes an ACCURACY WARNING section, ensure those facts are covered
 
 TOTAL OUTPUT: {scene_count} scenes + 1 title = {scene_count}+1 illustrations.
 Do NOT stop early. Complete every step above.""",

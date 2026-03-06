@@ -132,6 +132,7 @@ class TestGetStoryTemplate:
         "character_archetypes",
         "scene_count",
         "illustration_style",
+        "accuracy_note",
     }
 
     def test_valid_style_and_age_returns_all_keys(self):
@@ -192,3 +193,15 @@ class TestGetStoryTemplate:
         guidelines = result["style_guidelines"]
         assert "target_vocabulary" in guidelines
         assert "target_sentence_length" in guidelines
+
+    @pytest.mark.parametrize("style", VALID_STYLES)
+    def test_all_styles_have_accuracy_note(self, style):
+        result = get_story_template(style, "10-13")
+        assert "accuracy_note" in result
+        assert isinstance(result["accuracy_note"], str)
+        assert len(result["accuracy_note"]) > 10
+
+    def test_unknown_style_has_accuracy_note(self):
+        result = get_story_template("unknown_style", "10-13")
+        assert "accuracy_note" in result
+        assert isinstance(result["accuracy_note"], str)

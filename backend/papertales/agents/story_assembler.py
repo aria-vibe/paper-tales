@@ -35,12 +35,17 @@ Fact-check results:
 Source paper metadata:
 {parsed_paper}
 
+Science anchors and concepts:
+{extracted_concepts}
+
 ## YOUR TASK
 
 1. Parse the generated story to extract individual scenes (text, image references).
 2. Match audio URLs to their corresponding scenes.
 3. Review the fact-check results:
-   - If accuracy rating is "needs_revision", include flagged issues as disclaimers.
+   - If accuracy rating is "needs_revision", add a prominent "Science Note" section \
+to the output with the correct facts from the science anchors. This helps ensure \
+readers get accurate information even if the story drifted.
    - If "excellent" or "good", proceed normally.
 4. Extract paper metadata (title, authors, abstract snippet) from the parsed paper for the "Learn More" section.
 5. Build a glossary of scientific terms used in the story with child-friendly definitions.
@@ -80,7 +85,8 @@ Return ONLY valid JSON matching this structure:
     "accuracy_rating": "excellent / good / needs_revision",
     "summary": "Brief accuracy summary"
   },
-  "what_we_learned": "A short paragraph summarizing the key scientific takeaway in age-appropriate language"
+  "what_we_learned": "A short paragraph summarizing the key scientific takeaway in age-appropriate language",
+  "science_anchors": ["Anchor fact 1 from the extracted concepts", "Anchor fact 2", "..."]
 }
 ```
 
@@ -89,6 +95,8 @@ Important:
 - Set has_illustration and has_audio to true/false based on available content.
 - The glossary should contain 3-8 terms from the story.
 - what_we_learned should be 2-3 sentences that a child can understand.
+- science_anchors should contain the anchor facts from the SCIENCE ANCHORS section of the extracted concepts.
+- If fact-check rating is "needs_revision", add a "science_note" field with corrected facts.
 """,
     tools=[
         FunctionTool(save_to_firestore),
