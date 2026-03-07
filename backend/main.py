@@ -616,9 +616,10 @@ async def get_job_status(job_id: str, user_info: UserInfo = Depends(verify_fireb
 async def list_user_jobs(
     user_info: UserInfo = Depends(verify_firebase_token),
     limit: int = 10,
+    offset: int = 0,
 ):
     js = _get_job_service()
-    jobs = js.get_user_jobs(user_info.uid, limit=limit)
+    jobs = js.get_user_jobs(user_info.uid, limit=limit, offset=offset)
     return {"jobs": jobs}
 
 

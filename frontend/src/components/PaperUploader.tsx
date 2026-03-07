@@ -169,21 +169,19 @@ function ProgressSection({
   totalStages?: number | null;
 }) {
   const hasStageInfo = status === "processing" && currentStage != null && totalStages != null && totalStages > 0;
-  const progressPct = hasStageInfo ? Math.min(100, Math.max(0, Math.round((currentStage! / totalStages!) * 100))) : 0;
-  const showBar = hasStageInfo;
+  const isInitializing = !hasStageInfo || currentStage === 0;
+  const progressPct = isInitializing
+    ? 100
+    : Math.min(100, Math.max(0, Math.round((currentStage! / totalStages!) * 100)));
 
   return (
     <div className="uploader-progress">
-      {showBar ? (
-        <div className="uploader-progress-bar">
-          <div
-            className="uploader-progress-fill"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
-      ) : (
-        <div className="uploader-spinner" />
-      )}
+      <div className="uploader-progress-bar">
+        <div
+          className={`uploader-progress-fill${isInitializing ? " uploader-progress-fill--init" : ""}`}
+          style={{ width: `${progressPct}%` }}
+        />
+      </div>
       <p className="uploader-progress-label">
         {hasStageInfo && stageLabel
           ? stageLabel
@@ -191,7 +189,7 @@ function ProgressSection({
             ? "Uploading paper..."
             : "Starting generation..."}
       </p>
-      {showBar && currentStage! > 0 && (
+      {hasStageInfo && currentStage! > 0 && (
         <span className="uploader-progress-step">
           Step {currentStage} of {totalStages} &middot; {progressPct}%
         </span>

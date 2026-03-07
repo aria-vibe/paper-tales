@@ -209,14 +209,16 @@ class JobService:
 
         return job_data
 
-    def get_user_jobs(self, uid: str, limit: int = 10) -> list[dict]:
+    def get_user_jobs(self, uid: str, limit: int = 10, offset: int = 0) -> list[dict]:
         """Return recent jobs for a user, datetimes serialized to ISO strings."""
         query = (
             self._db.collection(JOBS_COLLECTION)
             .where("uid", "==", uid)
             .order_by("created_at", direction=firestore.Query.DESCENDING)
-            .limit(limit)
         )
+        if offset > 0:
+            query = query.offset(offset)
+        query = query.limit(limit)
 
         jobs = []
         for doc in query.stream():

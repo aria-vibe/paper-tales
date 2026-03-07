@@ -25,7 +25,7 @@ function App() {
     <BrowserRouter>
       {user ? (
         <>
-          <AuthBar user={user} onSignOut={signOut} />
+          <AuthBar user={user} onSignOut={signOut} getToken={stableGetToken} onUpgradeFromGuest={signOut} />
           <Routes>
             <Route
               path="/"

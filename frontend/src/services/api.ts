@@ -82,10 +82,10 @@ export async function fetchMediaBlobUrl(url: string, token: string): Promise<str
   return URL.createObjectURL(data as Blob);
 }
 
-export async function listUserJobs(token: string, limit = 10): Promise<JobHistoryResponse> {
+export async function listUserJobs(token: string, limit = 10, offset = 0): Promise<JobHistoryResponse> {
   const { data } = await api.get("/api/jobs", {
     headers: { Authorization: `Bearer ${token}` },
-    params: { limit },
+    params: { limit, offset },
   });
   return data;
 }

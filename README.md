@@ -95,7 +95,7 @@ sequenceDiagram
 
 ### Agent Pipeline
 
-The core of PaperTales is a `SequentialAgent` pipeline built with Google ADK. Each agent receives state from the previous agent and passes enriched state forward.
+The core of PaperTales is a `SequentialAgent` pipeline built with Google ADK. After the story is written and illustrated, the **Audio Narrator** and **Fact Checker** run in parallel via ADK's `ParallelAgent` — they are independent (both read from `generated_story` but neither reads the other's output). The **Paper Parser** also skips the LLM call entirely when the paper content is cached, emitting the cached text directly.
 
 ```mermaid
 graph LR
@@ -104,9 +104,11 @@ graph LR
     A3 --> A4[4. Narrative Designer]
     A4 --> A4G[4.5 Narrative Gate]
     A4G --> A5[5. Story Illustrator]
-    A5 --> A6[6. Audio Narrator]
-    A6 --> A7[7. Fact Checker]
-    A7 --> A8[8. Story Assembler]
+    A5 --> PAR{ParallelAgent}
+    PAR --> A6[6. Audio Narrator]
+    PAR --> A7[7. Fact Checker]
+    A6 --> A8[8. Story Assembler]
+    A7 --> A8
 
     style A1 fill:#fff3e0,stroke:#e65100
     style A2 fill:#fff3e0,stroke:#e65100
@@ -114,24 +116,43 @@ graph LR
     style A4 fill:#e3f2fd,stroke:#1565c0
     style A4G fill:#fce4ec,stroke:#b71c1c
     style A5 fill:#e8f5e9,stroke:#2e7d32
+    style PAR fill:#fffde7,stroke:#f57f17
     style A6 fill:#e8f5e9,stroke:#2e7d32
     style A7 fill:#fce4ec,stroke:#b71c1c
     style A8 fill:#f3e5f5,stroke:#6a1b9a
 ```
 
-| # | Agent | Model | Purpose | Tools |
-|---|-------|-------|---------|-------|
-| 1 | **Paper Parser** | `gemini-2.5-flash` | Extract and structure paper content from URL | `fetch_paper_from_url` |
-| 2 | **Concept Extractor** | `gemini-2.5-flash` | Identify 3–5 science anchors + classify field | — |
-| 3 | **Language Simplifier** | `gemini-2.5-flash` | Reduce complexity for target age group | — |
-| 4 | **Narrative Designer** | `gemini-2.5-flash` | Create plot outline, characters, scene structure | — |
-| 4.5 | **Narrative Gate** | `gemini-2.5-flash` | Quality validation checkpoint | — |
-| 5 | **Story Illustrator** | `gemini-2.5-flash-image` | Write story with interleaved text + images | — |
-| 6 | **Audio Narrator** | Gemini TTS | Generate voice narration per scene | `get_voice_for_age_group`, `synthesize_speech` |
-| 7 | **Fact Checker** | `gemini-2.5-flash` | Verify story accuracy against source paper | `extract_key_claims`, `compare_semantic_similarity`, `compare_claim_coverage` |
-| 8 | **Story Assembler** | `gemini-2.5-flash` | Package final JSON + persist to storage | `save_to_firestore`, `upload_to_gcs` |
+| # | Agent | Type | Model | Purpose | Tools |
+|---|-------|------|-------|---------|-------|
+| 1 | **Paper Parser** | `BaseAgent` | `gemini-2.5-flash` (skipped if cached) | Extract and structure paper content from URL | `fetch_paper_from_url` |
+| 2 | **Concept Extractor** | `LlmAgent` | `gemini-2.5-flash` | Identify 3–5 science anchors + classify field | — |
+| 3 | **Language Simplifier** | `LlmAgent` | `gemini-2.5-flash` | Reduce complexity for target age group | `score_readability` |
+| 4 | **Narrative Designer** | `LlmAgent` | `gemini-2.5-flash` | Create plot outline, characters, scene structure | — |
+| 4.5 | **Narrative Gate** | `BaseAgent` | — (no LLM) | Truncation + science anchor coverage check | — |
+| 5 | **Story Illustrator** | `LlmAgent` | `gemini-2.5-flash-image` | Write story with interleaved text + images | — |
+| 6 | **Audio Narrator** | `BaseAgent` | Gemini TTS (no LLM) | Generate voice narration per scene | `get_voice_for_age_group`, `synthesize_speech` |
+| 7 | **Fact Checker** | `LlmAgent` | `gemini-2.5-flash` | Verify story accuracy against source paper | `extract_key_claims`, `compare_semantic_similarity`, `compare_claim_coverage` |
+| 8 | **Story Assembler** | `LlmAgent` | `gemini-2.5-flash` | Package final JSON + persist to storage | `save_to_firestore`, `upload_to_gcs` |
 
-### Data Flow Between Agents
+### State Keys & Data Dependencies
+
+Each agent reads from shared session state (populated by upstream agents) and writes its output to a dedicated state key via `output_key` or `state_delta`. The table below shows the exact state keys each agent depends on, which determines the pipeline execution order.
+
+| # | Agent | Reads (state keys) | Writes (state key) |
+|---|-------|-------------------|-------------------|
+| 1 | Paper Parser | `user_paper_url`, `paper_cached` | `parsed_paper` |
+| 2 | Concept Extractor | `parsed_paper`, `age_group` | `extracted_concepts` |
+| 3 | Language Simplifier | `extracted_concepts`, `age_group` | `simplified_content` |
+| 4 | Narrative Designer | `simplified_content`, `extracted_concepts`, `story_style`, `age_group`, `story_template` | `narrative_design` |
+| 4.5 | Narrative Gate | `narrative_design`, `extracted_concepts` | `narrative_design` (mutated) |
+| 5 | Story Illustrator | `narrative_design`, `extracted_concepts`, `story_style`, `age_group`, `scene_count` | `generated_story` |
+| 6 | Audio Narrator | `generated_story`, `age_group` | `audio_urls` |
+| 7 | Fact Checker | `parsed_paper`, `generated_story`, `extracted_concepts` | `fact_check_result` |
+| 8 | Story Assembler | `generated_story`, `audio_urls`, `fact_check_result`, `parsed_paper`, `extracted_concepts` | `final_story` |
+
+> **Parallelization rationale**: Agents 6 and 7 share no read/write dependencies — Audio Narrator reads `generated_story` and writes `audio_urls`, while Fact Checker reads `generated_story` + `parsed_paper` + `extracted_concepts` and writes `fact_check_result`. Only Agent 8 (Story Assembler) needs both outputs, so it runs after the `ParallelAgent` completes.
+
+### Data Flow Diagram
 
 ```mermaid
 graph TD
@@ -140,10 +161,14 @@ graph TD
     A2 -->|extracted_concepts<br/>science anchors + field| A3
     A3 -->|simplified_content| A4
     A4 -->|narrative_design<br/>plot + characters + scenes| A4G
-    A4G -->|pass/fail gate| A5
-    A5 -->|generated_story<br/>markdown + base64 images| A6
-    A6 -->|audio_urls<br/>MP3 per scene| A7
-    A7 -->|fact_check_result<br/>accuracy scores| A8
+    A4G -->|narrative_design<br/>validated + trimmed| A5
+    A5 -->|generated_story<br/>markdown + base64 images| PAR["ParallelAgent"]
+
+    PAR -->|generated_story| A6[Audio Narrator]
+    PAR -->|"generated_story +<br/>parsed_paper +<br/>extracted_concepts"| A7[Fact Checker]
+
+    A6 -->|audio_urls| A8
+    A7 -->|fact_check_result| A8
     A8 -->|final_story<br/>complete JSON| DB[(Firestore + GCS)]
 ```
 
@@ -151,7 +176,7 @@ graph TD
 
 | Layer | Technology |
 |-------|-----------|
-| **AI Framework** | Google ADK (`SequentialAgent`, `LlmAgent`, `FunctionTool`) |
+| **AI Framework** | Google ADK (`SequentialAgent`, `ParallelAgent`, `LlmAgent`, `BaseAgent`, `FunctionTool`) |
 | **LLM** | Gemini 2.5 Flash, Gemini 2.5 Flash Image |
 | **Embeddings** | `gemini-embedding-001` |
 | **TTS** | Gemini 2.5 Flash Preview TTS |
@@ -326,7 +351,7 @@ Firebase Hosting is configured to rewrite `/api/**` requests to the Cloud Run ba
 
 ## Testing
 
-The backend has 155+ tests covering agents, tools, API endpoints, and services.
+The backend has 265+ tests covering agents, tools, API endpoints, and services.
 
 ```bash
 cd backend
@@ -441,7 +466,7 @@ paper-tales/
 │   │   ├── firestore_service.py  # Firestore + GCS persistence
 │   │   ├── job_service.py    # Job lifecycle management
 │   │   └── url_validation.py # Archive URL whitelist
-│   ├── tests/                # 155+ pytest tests
+│   ├── tests/                # 265+ pytest tests
 │   ├── main.py               # FastAPI application
 │   ├── demo_pipeline.py      # CLI for testing the pipeline
 │   ├── Dockerfile            # Cloud Run container
