@@ -2,7 +2,7 @@
 
 **AI-powered pipeline that transforms academic research papers into illustrated, narrated stories for young readers.**
 
-PaperTales takes a link to a research paper from any major preprint archive, runs it through a 9-agent AI pipeline, and produces an age-appropriate illustrated story complete with voice narration — making cutting-edge science accessible to children aged 6–17.
+PaperTales takes a research paper — via URL or a natural language question like "What is a transformer?" — runs it through a 9-agent AI pipeline, and produces an age-appropriate illustrated story complete with voice narration — making cutting-edge science accessible to children aged 6–17.
 
 Built for the **Gemini Live Agent Challenge — Creative Storyteller Track**, using Google's Agent Development Kit (ADK) and Gemini's interleaved text+image generation capabilities.
 
@@ -19,6 +19,7 @@ Built for the **Gemini Live Agent Challenge — Creative Storyteller Track**, us
 
 ## Features
 
+- **Natural language search** — Ask a question (e.g., "How do vaccines work?") and PaperTales finds the best matching arXiv paper automatically via Gemini-powered query refinement
 - **Multi-agent pipeline** — 9 specialized AI agents, each handling one stage of the transformation
 - **Interleaved text + image generation** — Stories are written and illustrated in a single pass using `gemini-2.5-flash-image`
 - **Voice narration** — Age-appropriate TTS narration for every scene
@@ -70,8 +71,15 @@ sequenceDiagram
     participant FS as Firestore
     participant GCS as Cloud Storage
 
-    U->>FE: Submit paper URL + age group + style
+    U->>FE: Submit paper URL or question + age group + style
     FE->>API: POST /api/generate
+    alt Natural language query
+        API->>API: Refine query with Gemini flash-lite
+        API->>arXiv: Search arXiv API
+        arXiv-->>API: Paper results
+        API->>API: Select best match with Gemini flash-lite
+        Note over API: Resolved paper URL
+    end
     API->>FS: Check cache (deterministic story ID)
     alt Cache hit
         FS-->>API: Return existing story
@@ -79,7 +87,7 @@ sequenceDiagram
     else Cache miss
         API->>JS: Create job
         JS-->>API: job_id
-        API-->>FE: 202 + job_id
+        API-->>FE: 202 + job_id + foundPaperTitle
         API->>Pipeline: Launch async pipeline
         loop Poll
             FE->>API: GET /api/jobs/{job_id}
@@ -156,6 +164,7 @@ Each agent reads from shared session state (populated by upstream agents) and wr
 
 ```mermaid
 graph TD
+    Q["Question (natural language)"] -->|"Gemini flash-lite<br/>+ arXiv API"| URL
     URL[Paper URL] --> A1
     A1 -->|parsed_paper| A2
     A2 -->|extracted_concepts<br/>science anchors + field| A3
@@ -177,7 +186,7 @@ graph TD
 | Layer | Technology |
 |-------|-----------|
 | **AI Framework** | Google ADK (`SequentialAgent`, `ParallelAgent`, `LlmAgent`, `BaseAgent`, `FunctionTool`) |
-| **LLM** | Gemini 2.5 Flash, Gemini 2.5 Flash Image |
+| **LLM** | Gemini 2.5 Flash, Gemini 2.5 Flash Image, Gemini 2.5 Flash Lite (search) |
 | **Embeddings** | `gemini-embedding-001` |
 | **TTS** | Gemini 2.5 Flash Preview TTS |
 | **Backend** | Python 3.12, FastAPI, uvicorn |
@@ -351,7 +360,7 @@ Firebase Hosting is configured to rewrite `/api/**` requests to the Cloud Run ba
 
 ## Testing
 
-The backend has 265+ tests covering agents, tools, API endpoints, and services.
+The backend has 290+ tests covering agents, tools, API endpoints, and services.
 
 ```bash
 cd backend
@@ -383,6 +392,7 @@ uv run pytest tests/ --cov=papertales
 | `test_audio_tools.py` | TTS voice selection |
 | `test_extract_scene_texts.py` | Scene parsing logic |
 | `test_narrative_gate.py` | Quality gate validation |
+| `test_paper_search.py` | Natural language search + arXiv API |
 | `test_url_validation.py` | URL whitelist validation |
 | `test_storage_tools.py` | Storage wrappers |
 | `test_pdf_tools.py` | PDF extraction |
@@ -394,7 +404,7 @@ uv run pytest tests/ --cov=papertales
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/health` | Health check |
-| `POST` | `/api/generate` | Start story generation pipeline |
+| `POST` | `/api/generate` | Start story generation (accepts `paper_url` or `query`) |
 | `GET` | `/api/jobs/{job_id}` | Poll job status and current stage |
 | `GET` | `/api/jobs/active` | Get active job for current user |
 | `GET` | `/api/jobs` | List all jobs for current user |
@@ -408,12 +418,25 @@ All endpoints except `/health` require a Firebase Auth token in the `Authorizati
 
 ### Generate a Story
 
+**From a URL:**
+
 ```bash
 curl -X POST https://your-app.web.app/api/generate \
   -H "Authorization: Bearer <firebase-token>" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "paper_url=https://arxiv.org/abs/2301.00001&age_group=10-13&style=adventure"
 ```
+
+**From a natural language question:**
+
+```bash
+curl -X POST https://your-app.web.app/api/generate \
+  -H "Authorization: Bearer <firebase-token>" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "query=What+is+a+transformer&age_group=10-13&style=sci_fi"
+```
+
+When using `query`, the response includes `foundPaperTitle` and `paperUrl` with the resolved arXiv paper.
 
 ## Configuration
 
@@ -465,8 +488,9 @@ paper-tales/
 │   │   ├── auth.py           # Firebase token verification
 │   │   ├── firestore_service.py  # Firestore + GCS persistence
 │   │   ├── job_service.py    # Job lifecycle management
+│   │   ├── paper_search.py   # Natural language → arXiv search
 │   │   └── url_validation.py # Archive URL whitelist
-│   ├── tests/                # 265+ pytest tests
+│   ├── tests/                # 290+ pytest tests
 │   ├── main.py               # FastAPI application
 │   ├── demo_pipeline.py      # CLI for testing the pipeline
 │   ├── Dockerfile            # Cloud Run container

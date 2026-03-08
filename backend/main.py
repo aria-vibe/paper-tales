@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from papertales.auth import UserInfo, verify_firebase_token
 from papertales.agents.audio_narrator import _extract_scene_texts
 from papertales.config import (
+    FIELD_SYNONYMS,
     FIELD_TAXONOMY,
     STATE_AUDIO,
     STATE_CONCEPTS,
@@ -114,6 +115,10 @@ def _extract_field_of_study(concepts_text: str) -> str:
         field = match.group(1).strip()
         if field in FIELD_TAXONOMY:
             return field
+        # Fuzzy match: check synonyms (case-insensitive)
+        canonical = FIELD_SYNONYMS.get(field.lower())
+        if canonical:
+            return canonical
     return "Other"
 
 

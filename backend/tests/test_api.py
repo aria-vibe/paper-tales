@@ -214,6 +214,30 @@ class TestExtractFieldOfStudy:
         text = "**Field**: Underwater Basket Weaving"
         assert _extract_field_of_study(text) == "Other"
 
+    def test_resolves_machine_learning_to_cs(self):
+        from main import _extract_field_of_study
+
+        text = "**Field**: Machine Learning"
+        assert _extract_field_of_study(text) == "Computer Science"
+
+    def test_resolves_case_insensitive(self):
+        from main import _extract_field_of_study
+
+        text = "**Field**: artificial intelligence"
+        assert _extract_field_of_study(text) == "Computer Science"
+
+    def test_resolves_genetics_to_biology(self):
+        from main import _extract_field_of_study
+
+        text = "**Field**: Genetics"
+        assert _extract_field_of_study(text) == "Biology"
+
+    def test_exact_match_takes_priority(self):
+        from main import _extract_field_of_study
+
+        text = "**Field**: Physics"
+        assert _extract_field_of_study(text) == "Physics"
+
 
 class TestExtractPaperMetadata:
     def test_extracts_title_and_authors(self):

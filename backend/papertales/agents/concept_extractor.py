@@ -75,12 +75,25 @@ For each core concept, provide a real-world analogy calibrated to {age_group}:
 - **<Concept>**: "<Analogy>"
 
 ### FIELD OF STUDY
-Classify this paper into exactly ONE field from this list:
-Biology, Chemistry, Computer Science, Earth Science, Economics,
-Engineering, Environmental Science, Mathematics, Medicine,
-Neuroscience, Physics, Psychology, Social Science, Other
+Classify this paper into exactly ONE field from this list.
+Pick the PARENT field, not a subcategory:
 
-**Field**: [one field from the list above]
+- **Biology** (genetics, ecology, microbiology, molecular biology, genomics…)
+- **Chemistry** (biochemistry, organic chemistry, materials science, nanotechnology…)
+- **Computer Science** (machine learning, AI, deep learning, NLP, computer vision, robotics, data science…)
+- **Earth Science** (geology, oceanography, meteorology…)
+- **Economics** (finance, econometrics…)
+- **Engineering** (electrical, mechanical, biomedical engineering…)
+- **Environmental Science** (climate science, sustainability…)
+- **Mathematics** (statistics, probability, algebra, geometry…)
+- **Medicine** (epidemiology, oncology, immunology, pharmacology, public health…)
+- **Neuroscience** (cognitive science, neuroimaging…)
+- **Physics** (quantum mechanics, astrophysics, cosmology, particle physics, condensed matter…)
+- **Psychology** (behavioral science, cognitive psychology…)
+- **Social Science** (sociology, political science, linguistics, anthropology…)
+- **Other** (only if the paper truly does not fit any field above)
+
+**Field**: [one PARENT field name from the list above, e.g. "Computer Science" not "Machine Learning"]
 
 ### VISUAL OPPORTUNITIES
 List 3–5 scenes that the downstream illustration agent could draw to
