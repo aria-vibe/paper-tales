@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { ActiveJobResponse, GenerationRequest, JobHistoryResponse, JobResponse, QuotaInfo, Story, TopPapersResponse, VoteResponse } from "../types";
+import type { ActiveJobResponse, GenerationRequest, JobHistoryResponse, JobResponse, QuotaInfo, Story, TopPapersResponse, UserProfile, VoteResponse } from "../types";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "",
@@ -84,6 +84,22 @@ export async function fetchMediaBlobUrl(url: string, token: string): Promise<str
     responseType: "blob",
   });
   return URL.createObjectURL(data as Blob);
+}
+
+export async function getUserProfile(token: string): Promise<UserProfile> {
+  const { data } = await api.get("/api/me", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+export async function regenerateStory(storyId: string, token: string): Promise<JobResponse> {
+  const { data } = await api.post(
+    `/api/stories/${storyId}/regenerate`,
+    {},
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
 }
 
 export async function listUserJobs(token: string, limit = 10, offset = 0): Promise<JobHistoryResponse> {

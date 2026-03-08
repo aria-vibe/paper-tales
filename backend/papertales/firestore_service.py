@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 STORIES_COLLECTION = "stories"
 PARSED_PAPERS_COLLECTION = "parsed_papers"
 DAILY_USAGE_COLLECTION = "daily_usage"
+USERS_COLLECTION = "users"
 GCS_BUCKET = "papertales-media"
 MAX_VERSIONS = 5
 REGEN_VOTE_THRESHOLD = 10
@@ -31,6 +32,39 @@ class FirestoreService:
         self._db = firestore_client or firestore.Client()
         self._storage = storage_client or storage.Client()
         self._bucket = self._storage.bucket(GCS_BUCKET)
+
+    # ------------------------------------------------------------------
+    # User records
+    # ------------------------------------------------------------------
+
+    def get_or_create_user(self, uid: str, email: str, is_anonymous: bool) -> dict:
+        """Ensure a user document exists. Creates on first call, updates last_login on subsequent calls."""
+        doc_ref = self._db.collection(USERS_COLLECTION).document(uid)
+        now = datetime.now(timezone.utc)
+        doc_ref.set(
+            {
+                "uid": uid,
+                "email": email,
+                "is_anonymous": is_anonymous,
+                "last_login_at": now,
+            },
+            merge=True,
+        )
+        # Set defaults that should only appear on first creation
+        doc = doc_ref.get()
+        data = doc.to_dict()
+        if "registered_at" not in data:
+            doc_ref.update({"registered_at": now, "is_admin": False})
+            data["registered_at"] = now
+            data["is_admin"] = False
+        return data
+
+    def is_user_admin(self, uid: str) -> bool:
+        """Check if user has admin privileges."""
+        doc = self._db.collection(USERS_COLLECTION).document(uid).get()
+        if not doc.exists:
+            return False
+        return doc.to_dict().get("is_admin", False)
 
     @staticmethod
     def compute_story_id(paper_id: str, age_group: str, style: str) -> str:

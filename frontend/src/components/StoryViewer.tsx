@@ -6,6 +6,8 @@ import { VoteButtons } from "./VoteButtons";
 interface StoryViewerProps {
   story: Story;
   getToken?: () => Promise<string>;
+  isAdmin?: boolean;
+  onRegenerate?: () => void;
 }
 
 function getDifficultyFromAccuracy(
@@ -215,7 +217,8 @@ function ScenePage({
   );
 }
 
-export function StoryViewer({ story, getToken }: StoryViewerProps) {
+export function StoryViewer({ story, getToken, isAdmin, onRegenerate }: StoryViewerProps) {
+  const [regenerating, setRegenerating] = useState(false);
   const [currentScene, setCurrentScene] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -331,15 +334,29 @@ export function StoryViewer({ story, getToken }: StoryViewerProps) {
             )}
           </p>
         )}
-        {getToken && (
-          <VoteButtons
-            storyId={story.id}
-            initialUpvotes={story.upvotes ?? 0}
-            initialDownvotes={story.downvotes ?? 0}
-            initialUserVote={story.userVote}
-            getToken={getToken}
-          />
-        )}
+        <div className="story-actions-row">
+          {getToken && (
+            <VoteButtons
+              storyId={story.id}
+              initialUpvotes={story.upvotes ?? 0}
+              initialDownvotes={story.downvotes ?? 0}
+              initialUserVote={story.userVote}
+              getToken={getToken}
+            />
+          )}
+          {isAdmin && onRegenerate && (
+            <button
+              className="regenerate-btn"
+              disabled={regenerating}
+              onClick={() => {
+                setRegenerating(true);
+                onRegenerate();
+              }}
+            >
+              {regenerating ? "Regenerating..." : "Regenerate"}
+            </button>
+          )}
+        </div>
       </header>
 
       {/* Storybook page */}

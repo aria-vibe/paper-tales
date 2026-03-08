@@ -1744,6 +1744,41 @@ a:hover {
   cursor: not-allowed;
 }
 
+.story-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.story-actions-row .vote-buttons {
+  margin-top: 0;
+}
+
+.regenerate-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--accent-color);
+  background: var(--accent-color);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.regenerate-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.regenerate-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ============================================================
    Story Page
    ============================================================ */

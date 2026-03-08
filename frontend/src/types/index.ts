@@ -114,6 +114,14 @@ export interface QuotaInfo {
   isAnonymous: boolean;
 }
 
+export interface UserProfile {
+  uid: string;
+  email: string;
+  isAdmin: boolean;
+  registeredAt: string;
+  lastLoginAt: string;
+}
+
 export interface TopPapersResponse {
   [field: string]: {
     id: string;

@@ -30,6 +30,7 @@ def _get_firebase_app() -> firebase_admin.App:
 class UserInfo:
     uid: str
     is_anonymous: bool
+    email: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -54,4 +55,6 @@ async def verify_firebase_token(authorization: str = Header(None)) -> UserInfo:
         decoded.get("firebase", {}).get("sign_in_provider") == "anonymous"
     )
 
-    return UserInfo(uid=decoded["uid"], is_anonymous=is_anonymous)
+    email = decoded.get("email", "")
+
+    return UserInfo(uid=decoded["uid"], is_anonymous=is_anonymous, email=email)

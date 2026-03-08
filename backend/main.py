@@ -23,6 +23,7 @@ from google.genai import types
 from pydantic import BaseModel
 
 from papertales.auth import UserInfo, verify_firebase_token
+from papertales.firestore_service import STORIES_COLLECTION
 from papertales.agents.audio_narrator import _extract_scene_texts
 from papertales.config import (
     FIELD_SYNONYMS,
@@ -185,6 +186,69 @@ def _parse_final_story(raw: str, story_id: str) -> dict:
 async def health():
     return {"status": "ok"}
 
+
+@app.get("/api/me")
+async def get_me(user_info: UserInfo = Depends(verify_firebase_token)):
+    fs = _get_firestore_service()
+    profile = fs.get_or_create_user(user_info.uid, user_info.email, user_info.is_anonymous)
+    return {
+        "uid": profile["uid"],
+        "email": profile.get("email", ""),
+        "isAdmin": profile.get("is_admin", False),
+        "registeredAt": profile.get("registered_at", ""),
+        "lastLoginAt": profile.get("last_login_at", ""),
+    }
+
+
+@app.post("/api/stories/{story_id}/regenerate")
+async def regenerate_story(story_id: str, user_info: UserInfo = Depends(verify_firebase_token)):
+    fs = _get_firestore_service()
+    profile = fs.get_or_create_user(user_info.uid, user_info.email, user_info.is_anonymous)
+    if not profile.get("is_admin", False):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+
+    # Load existing story metadata
+    story_doc = fs._db.collection(STORIES_COLLECTION).document(story_id).get()
+    if not story_doc.exists:
+        raise HTTPException(status_code=404, detail="Story not found.")
+
+    story_data = story_doc.to_dict()
+    paper_url = story_data.get("source_url", "")
+    age_group = story_data.get("age_group", "10-13")
+    style = story_data.get("style", "fairy_tale")
+    paper_id = story_data.get("paper_id", "")
+    archive_name = story_data.get("archive", "")
+
+    if not paper_url or not paper_id:
+        raise HTTPException(status_code=400, detail="Story metadata incomplete — cannot regenerate.")
+
+    # Flag for regen to invalidate cache
+    fs._db.collection(STORIES_COLLECTION).document(story_id).update({"flagged_for_regen": True})
+
+    # No quota check for admins — launch pipeline directly
+    js = _get_job_service()
+    job = js.create_job(story_id, user_info.uid, paper_url, age_group, style)
+
+    asyncio.run_coroutine_threadsafe(
+        _run_pipeline_task(
+            job_id=story_id,
+            uid=user_info.uid,
+            normalized_url=paper_url,
+            archive_name=archive_name,
+            paper_id=paper_id,
+            age_group=age_group,
+            style=style,
+        ),
+        _get_pipeline_loop(),
+    )
+
+    return {
+        "jobId": story_id,
+        "status": "processing",
+        "currentStage": job.get("current_stage", 0),
+        "totalStages": job.get("total_stages", 8),
+        "stageLabel": job.get("stage_label", "Initializing"),
+    }
 
 
 async def _run_pipeline_task(

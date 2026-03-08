@@ -10,6 +10,7 @@ function App() {
   const {
     user,
     loading,
+    isAdmin,
     signInWithGoogle,
     signInWithEmail,
     signUpWithEmail,
@@ -33,7 +34,7 @@ function App() {
             />
             <Route
               path="/story/:id"
-              element={<Story getToken={stableGetToken} />}
+              element={<Story getToken={stableGetToken} isAdmin={isAdmin} />}
             />
             <Route
               path="/login"

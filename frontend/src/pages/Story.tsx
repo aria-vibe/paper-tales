@@ -1,17 +1,30 @@
-import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { StoryViewer } from "../components/StoryViewer";
-import { getStory } from "../services/api";
+import { getStory, regenerateStory } from "../services/api";
 import type { Story as StoryType } from "../types";
 
 interface StoryProps {
   getToken: () => Promise<string>;
+  isAdmin?: boolean;
 }
 
-export function Story({ getToken }: StoryProps) {
+export function Story({ getToken, isAdmin }: StoryProps) {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [story, setStory] = useState<StoryType | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const handleRegenerate = useCallback(async () => {
+    if (!id) return;
+    try {
+      const token = await getToken();
+      await regenerateStory(id, token);
+      navigate(`/?jobId=${id}`);
+    } catch (err) {
+      console.error("Regeneration failed", err);
+    }
+  }, [id, getToken, navigate]);
 
   useEffect(() => {
     if (!id) return;
@@ -64,7 +77,7 @@ export function Story({ getToken }: StoryProps) {
       <Link to="/" className="story-back">
         {"\u2190"} Home
       </Link>
-      <StoryViewer story={story} getToken={getToken} />
+      <StoryViewer story={story} getToken={getToken} isAdmin={isAdmin} onRegenerate={handleRegenerate} />
     </main>
   );
 }
