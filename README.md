@@ -56,8 +56,8 @@ graph TB
     CR --> SM
     CR --> GEMINI
 
-    style Client fill:#e3f2fd,stroke:#1565c0
-    style GCP fill:#e8f5e9,stroke:#2e7d32
+    style Client fill:#1565c0,stroke:#0d47a1,color:#fff
+    style GCP fill:#2e7d32,stroke:#1b5e20,color:#fff
 ```
 
 ### Request Flow
@@ -119,16 +119,16 @@ graph LR
     A6 --> A8[8. Story Assembler]
     A7 --> A8
 
-    style A1 fill:#fff3e0,stroke:#e65100
-    style A2 fill:#fff3e0,stroke:#e65100
-    style A3 fill:#e3f2fd,stroke:#1565c0
-    style A4 fill:#e3f2fd,stroke:#1565c0
-    style A4G fill:#fce4ec,stroke:#b71c1c
-    style A5 fill:#e8f5e9,stroke:#2e7d32
-    style PAR fill:#fffde7,stroke:#f57f17
-    style A6 fill:#e8f5e9,stroke:#2e7d32
-    style A7 fill:#fce4ec,stroke:#b71c1c
-    style A8 fill:#f3e5f5,stroke:#6a1b9a
+    style A1 fill:#e65100,stroke:#bf360c,color:#fff
+    style A2 fill:#e65100,stroke:#bf360c,color:#fff
+    style A3 fill:#1565c0,stroke:#0d47a1,color:#fff
+    style A4 fill:#1565c0,stroke:#0d47a1,color:#fff
+    style A4G fill:#c62828,stroke:#b71c1c,color:#fff
+    style A5 fill:#2e7d32,stroke:#1b5e20,color:#fff
+    style PAR fill:#f9a825,stroke:#f57f17,color:#000
+    style A6 fill:#2e7d32,stroke:#1b5e20,color:#fff
+    style A7 fill:#c62828,stroke:#b71c1c,color:#fff
+    style A8 fill:#6a1b9a,stroke:#4a148c,color:#fff
 ```
 
 | # | Agent | Type | Model | Purpose | Tools |
