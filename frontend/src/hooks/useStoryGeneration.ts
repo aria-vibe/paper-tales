@@ -10,9 +10,11 @@ function friendlyError(err: unknown): string {
     const status = resp?.status;
     const detail = resp?.data?.detail;
 
+    if (status === 404) return detail || "No matching paper found. Try rephrasing your question.";
     if (status === 409) return detail || "You already have a story being generated.";
     if (status === 422) return detail || "That URL doesn't look right. Please check it and try again.";
     if (status === 429) return "Too many requests. Please wait a moment and try again.";
+    if (status === 503) return detail || "Search service temporarily unavailable. Try a direct URL.";
     if (status === 413) return "That paper is too large to process. Try a shorter one.";
     if (status && status >= 500) return "Something went wrong on our end. Please try again in a moment.";
     if (status === 401 || status === 403) return "Your session expired. Please sign in again.";
@@ -32,6 +34,7 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
   const [currentStage, setCurrentStage] = useState<number | null>(null);
   const [totalStages, setTotalStages] = useState<number | null>(null);
   const [activeRequest, setActiveRequest] = useState<GenerationRequest | null>(null);
+  const [foundPaperTitle, setFoundPaperTitle] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumedRef = useRef(false);
 
@@ -115,6 +118,7 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
     setCurrentStage(null);
     setTotalStages(null);
     setActiveRequest(null);
+    setFoundPaperTitle(null);
     stopPolling();
 
     try {
@@ -130,9 +134,10 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
       }
 
       // Async job — set initial stage info and poll for status
-      const jobResult = result as { jobId: string; currentStage?: number; totalStages?: number; stageLabel?: string };
+      const jobResult = result as { jobId: string; currentStage?: number; totalStages?: number; stageLabel?: string; foundPaperTitle?: string };
       const jobId = jobResult.jobId;
 
+      if (jobResult.foundPaperTitle) setFoundPaperTitle(jobResult.foundPaperTitle);
       if (jobResult.currentStage != null) setCurrentStage(jobResult.currentStage);
       if (jobResult.totalStages != null) setTotalStages(jobResult.totalStages);
       if (jobResult.stageLabel) setStageLabel(jobResult.stageLabel);
@@ -155,7 +160,8 @@ export function useStoryGeneration(getToken: () => Promise<string>) {
     setCurrentStage(null);
     setTotalStages(null);
     setActiveRequest(null);
+    setFoundPaperTitle(null);
   }
 
-  return { status, story, error, generate, reset, stageLabel, currentStage, totalStages, activeRequest };
+  return { status, story, error, generate, reset, stageLabel, currentStage, totalStages, activeRequest, foundPaperTitle };
 }

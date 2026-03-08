@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import type { AgeGroup, GenerationRequest, GenerationStatus, QuotaInfo, StoryStyle } from "../types";
 import { getQuota } from "../services/api";
 
+type InputMode = "url" | "question";
+
 interface PaperUploaderProps {
   onSubmit: (request: GenerationRequest) => void;
   disabled?: boolean;
@@ -13,6 +15,7 @@ interface PaperUploaderProps {
   error?: string | null;
   onDismissError?: () => void;
   activeRequest?: GenerationRequest | null;
+  foundPaperTitle?: string | null;
 }
 
 const AGE_GROUPS: { value: AgeGroup; label: string }[] = [
@@ -28,15 +31,23 @@ const STORY_STYLES: { value: StoryStyle; label: string }[] = [
   { value: "comic_book", label: "Comic Book" },
 ];
 
-export function PaperUploader({ onSubmit, disabled, getToken, status, stageLabel, currentStage, totalStages, error, onDismissError, activeRequest }: PaperUploaderProps) {
+export function PaperUploader({ onSubmit, disabled, getToken, status, stageLabel, currentStage, totalStages, error, onDismissError, activeRequest, foundPaperTitle }: PaperUploaderProps) {
+  const [inputMode, setInputMode] = useState<InputMode>("question");
   const [paperUrl, setPaperUrl] = useState("");
+  const [queryText, setQueryText] = useState("");
   const [ageGroup, setAgeGroup] = useState<AgeGroup>("10-13");
   const [style, setStyle] = useState<StoryStyle>("adventure");
 
   // Restore options from an active (resumed) job
   useEffect(() => {
     if (activeRequest) {
-      setPaperUrl(activeRequest.paperUrl);
+      if (activeRequest.query) {
+        setInputMode("question");
+        setQueryText(activeRequest.query);
+      } else {
+        setInputMode("url");
+        setPaperUrl(activeRequest.paperUrl);
+      }
       setAgeGroup(activeRequest.ageGroup);
       setStyle(activeRequest.style);
     }
@@ -56,26 +67,69 @@ export function PaperUploader({ onSubmit, disabled, getToken, status, stageLabel
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!paperUrl) return;
-    onSubmit({ paperUrl, ageGroup, style });
+    if (inputMode === "url") {
+      if (!paperUrl) return;
+      onSubmit({ paperUrl, ageGroup, style });
+    } else {
+      if (!queryText) return;
+      onSubmit({ paperUrl: "", ageGroup, style, query: queryText });
+    }
   }
 
+  const hasInput = inputMode === "url" ? !!paperUrl : !!queryText;
   const quotaExhausted = quota !== null && quota.remaining <= 0;
 
   return (
     <form onSubmit={handleSubmit} className="paper-uploader">
-      <input
-        className="uploader-url"
-        type="url"
-        placeholder="Paste a research paper URL..."
-        value={paperUrl}
-        onChange={(e) => setPaperUrl(e.target.value)}
-        disabled={disabled}
-      />
-      <p className="uploader-hint">
-        Supports arXiv, bioRxiv, medRxiv, ChemRxiv, SSRN, EarthArXiv,
-        PsyArXiv, OSF
-      </p>
+      <div className="input-mode-toggle">
+        <button
+          type="button"
+          className={`mode-tab${inputMode === "question" ? " mode-tab--active" : ""}`}
+          onClick={() => setInputMode("question")}
+          disabled={disabled}
+        >
+          Ask a Question
+        </button>
+        <button
+          type="button"
+          className={`mode-tab${inputMode === "url" ? " mode-tab--active" : ""}`}
+          onClick={() => setInputMode("url")}
+          disabled={disabled}
+        >
+          Paste URL
+        </button>
+      </div>
+
+      {inputMode === "url" ? (
+        <>
+          <input
+            className="uploader-url"
+            type="url"
+            placeholder="Paste a research paper URL..."
+            value={paperUrl}
+            onChange={(e) => setPaperUrl(e.target.value)}
+            disabled={disabled}
+          />
+          <p className="uploader-hint">
+            Supports arXiv, bioRxiv, medRxiv, ChemRxiv, SSRN, EarthArXiv,
+            PsyArXiv, OSF
+          </p>
+        </>
+      ) : (
+        <>
+          <input
+            className="uploader-url"
+            type="text"
+            placeholder="Ask about any topic..."
+            value={queryText}
+            onChange={(e) => setQueryText(e.target.value)}
+            disabled={disabled}
+          />
+          <p className="uploader-hint">
+            e.g., What is a transformer? How do vaccines work? What causes black holes?
+          </p>
+        </>
+      )}
 
       <div className="uploader-options">
         <fieldset className="option-group" disabled={disabled}>
@@ -116,6 +170,7 @@ export function PaperUploader({ onSubmit, disabled, getToken, status, stageLabel
           stageLabel={stageLabel}
           currentStage={currentStage}
           totalStages={totalStages}
+          foundPaperTitle={foundPaperTitle}
         />
       ) : (
         <>
@@ -134,7 +189,7 @@ export function PaperUploader({ onSubmit, disabled, getToken, status, stageLabel
               <button
                 type="submit"
                 className="uploader-submit"
-                disabled={disabled || !paperUrl || quotaExhausted}
+                disabled={disabled || !hasInput || quotaExhausted}
               >
                 Generate Story
               </button>
@@ -162,11 +217,13 @@ function ProgressSection({
   stageLabel,
   currentStage,
   totalStages,
+  foundPaperTitle,
 }: {
   status: GenerationStatus;
   stageLabel?: string | null;
   currentStage?: number | null;
   totalStages?: number | null;
+  foundPaperTitle?: string | null;
 }) {
   const hasStageInfo = status === "processing" && currentStage != null && totalStages != null && totalStages > 0;
   const isInitializing = !hasStageInfo || currentStage === 0;
@@ -176,6 +233,11 @@ function ProgressSection({
 
   return (
     <div className="uploader-progress">
+      {foundPaperTitle && (
+        <p className="found-paper-title">
+          Found paper: <strong>{foundPaperTitle}</strong>
+        </p>
+      )}
       <div className="uploader-progress-bar">
         <div
           className={`uploader-progress-fill${isInitializing ? " uploader-progress-fill--init" : ""}`}

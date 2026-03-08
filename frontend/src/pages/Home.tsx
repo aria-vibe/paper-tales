@@ -10,7 +10,7 @@ interface HomeProps {
 }
 
 export function Home({ getToken }: HomeProps) {
-  const { status, story, error, generate, reset, stageLabel, currentStage, totalStages, activeRequest } = useStoryGeneration(getToken);
+  const { status, story, error, generate, reset, stageLabel, currentStage, totalStages, activeRequest, foundPaperTitle } = useStoryGeneration(getToken);
 
   if (story) {
     return (
@@ -47,6 +47,7 @@ export function Home({ getToken }: HomeProps) {
             error={error}
             onDismissError={reset}
             activeRequest={activeRequest}
+            foundPaperTitle={foundPaperTitle}
           />
         </div>
       </div>

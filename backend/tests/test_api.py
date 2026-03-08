@@ -49,11 +49,12 @@ def app():
     @test_app.post("/api/generate")
     async def generate_story(
         user_info: UserInfo = Depends(mock_verify_token),
-        paper_url: str = Form(...),
+        paper_url: str = Form(""),
+        query: str = Form(""),
         age_group: str = Form("10-13"),
         style: str = Form("fairy_tale"),
     ):
-        return await main.generate_story(user_info, paper_url, age_group, style)
+        return await main.generate_story(user_info, paper_url, query, age_group, style)
 
     @test_app.get("/api/jobs/{job_id}")
     async def get_job_status(job_id: str, user_info: UserInfo = Depends(mock_verify_token)):
@@ -375,6 +376,81 @@ class TestGenerateEndpoint:
 
         assert resp.status_code == 409
         assert "already have a story" in resp.json()["detail"]
+
+        main._firestore_service = None
+        main._job_service = None
+
+    def test_empty_input_returns_400(self, client):
+        resp = client.post(
+            "/api/generate",
+            data={"paper_url": "", "query": "", "age_group": "10-13", "style": "fairy_tale"},
+        )
+        assert resp.status_code == 400
+        assert "Provide a paper URL or a search query" in resp.json()["detail"]
+
+    @patch("papertales.paper_search.search_paper")
+    def test_search_query_triggers_search(self, mock_search, client, mock_fs, mock_js):
+        import main
+        from papertales.paper_search import SearchResult
+
+        mock_search.return_value = SearchResult(
+            paper_url="https://arxiv.org/abs/1706.03762",
+            paper_title="Attention Is All You Need",
+            arxiv_id="1706.03762",
+            authors=["Vaswani"],
+        )
+        main._firestore_service = mock_fs
+        main._job_service = mock_js
+
+        resp = client.post(
+            "/api/generate",
+            data={"query": "what is a transformer", "age_group": "10-13", "style": "adventure"},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "processing"
+        assert body["foundPaperTitle"] == "Attention Is All You Need"
+        assert "paperUrl" in body
+        mock_search.assert_called_once_with("what is a transformer")
+
+        main._firestore_service = None
+        main._job_service = None
+
+    @patch("papertales.paper_search.search_paper")
+    def test_search_not_found_returns_404(self, mock_search, client):
+        from papertales.paper_search import PaperNotFoundError
+
+        mock_search.side_effect = PaperNotFoundError('No papers found for "gibberish".')
+
+        resp = client.post(
+            "/api/generate",
+            data={"query": "gibberish", "age_group": "10-13", "style": "fairy_tale"},
+        )
+
+        assert resp.status_code == 404
+        assert "No papers found" in resp.json()["detail"]
+
+    def test_url_bypasses_search(self, client, mock_fs, mock_js):
+        """When paper_url is provided as a URL, search is not called."""
+        import main
+        main._firestore_service = mock_fs
+        main._job_service = mock_js
+
+        resp = client.post(
+            "/api/generate",
+            data={
+                "paper_url": "https://arxiv.org/abs/2301.00001",
+                "query": "some query",
+                "age_group": "10-13",
+                "style": "fairy_tale",
+            },
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "processing"
+        assert "foundPaperTitle" not in body
 
         main._firestore_service = None
         main._job_service = None

@@ -477,11 +477,37 @@ async def _run_pipeline_task(
 @app.post("/api/generate")
 async def generate_story(
     user_info: UserInfo = Depends(verify_firebase_token),
-    paper_url: str = Form(...),
+    paper_url: str = Form(""),
+    query: str = Form(""),
     age_group: str = Form("10-13"),
     style: str = Form("fairy_tale"),
 ):
     uid = user_info.uid
+    found_paper_title: str | None = None
+
+    # Determine input mode: URL or natural language search
+    from papertales.paper_search import (
+        PaperNotFoundError,
+        SearchServiceError,
+        is_url_input,
+        search_paper,
+    )
+
+    if paper_url and is_url_input(paper_url):
+        # Existing URL flow
+        pass
+    elif query:
+        # Natural language search flow
+        try:
+            search_result = await search_paper(query)
+            paper_url = search_result.paper_url
+            found_paper_title = search_result.paper_title
+        except PaperNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except SearchServiceError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+    elif not paper_url:
+        raise HTTPException(status_code=400, detail="Provide a paper URL or a search query.")
 
     # Validate URL against whitelist
     try:
@@ -547,13 +573,17 @@ async def generate_story(
         _get_pipeline_loop(),
     )
 
-    return {
+    response = {
         "jobId": story_id,
         "status": "processing",
         "currentStage": job.get("current_stage", 0),
         "totalStages": job.get("total_stages", 8),
         "stageLabel": job.get("stage_label", "Initializing"),
     }
+    if found_paper_title:
+        response["foundPaperTitle"] = found_paper_title
+        response["paperUrl"] = normalized_url
+    return response
 
 
 @app.get("/api/jobs/active")

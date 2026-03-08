@@ -44,6 +44,7 @@ export interface GenerationRequest {
   paperUrl: string;
   ageGroup: AgeGroup;
   style: StoryStyle;
+  query?: string;
 }
 
 export type GenerationStatus =
@@ -62,6 +63,8 @@ export interface JobResponse {
   totalStages?: number;
   stageLabel?: string;
   processingTimeMs?: number;
+  foundPaperTitle?: string;
+  paperUrl?: string;
 }
 
 export interface JobHistoryItem {

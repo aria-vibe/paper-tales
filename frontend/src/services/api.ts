@@ -16,7 +16,11 @@ export async function generateStory(
   token: string
 ): Promise<JobResponse | Story> {
   const formData = new FormData();
-  formData.append("paper_url", request.paperUrl);
+  if (request.query) {
+    formData.append("query", request.query);
+  } else {
+    formData.append("paper_url", request.paperUrl);
+  }
   formData.append("age_group", request.ageGroup);
   formData.append("style", request.style);
 
