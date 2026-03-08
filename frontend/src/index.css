@@ -1859,6 +1859,26 @@ a:hover {
   animation: fadeSlideIn 0.2s ease-out;
 }
 
+.regen-modal-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  margin-bottom: 10px;
+}
+
+[data-theme="dark"] .regen-modal-badge {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
 .regen-modal-title {
   margin: 0 0 8px;
   font-size: 1.15rem;
@@ -1906,10 +1926,8 @@ a:hover {
   font-size: 0.88rem;
   color: var(--text-primary);
   text-align: right;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 260px;
+  max-width: 280px;
+  word-break: break-word;
 }
 
 .regen-modal-actions {

@@ -458,9 +458,10 @@ export function StoryViewer({ story, getToken, isAdmin, onRegenerate }: StoryVie
       {showRegenConfirm && (
         <div className="regen-overlay" onClick={() => setShowRegenConfirm(false)}>
           <div className="regen-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="regen-modal-badge">Admin</div>
             <h3 className="regen-modal-title">Regenerate this story?</h3>
             <p className="regen-modal-desc">
-              This will create a new version of the story with fresh illustrations and narration.
+              This will create a new version of the story with fresh illustrations and narration. This action is only available to administrators.
             </p>
             <dl className="regen-modal-meta">
               <div className="regen-meta-row">
