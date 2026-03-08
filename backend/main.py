@@ -114,9 +114,29 @@ async def _normalize_field_with_llm(raw_field: str) -> str:
     from google.genai import types as genai_types
 
     client = genai.Client()
+    prompt = f"""\
+Map the academic field or subcategory "{raw_field}" to its parent field.
+
+Use these field descriptions to decide:
+- Biology: living organisms, genes, cells, ecosystems, evolution, genetics, ecology, microbiology, molecular biology, genomics, bioinformatics
+- Chemistry: composition, structure and reactions of matter, biochemistry, organic chemistry, materials science, nanotechnology
+- Computer Science: computation, algorithms, software, AI, artificial intelligence, agentic AI, LLM agents, large language models, generative AI, foundation models, machine learning, deep learning, reinforcement learning, NLP, natural language processing, computer vision, robotics, data science, cybersecurity, software engineering
+- Earth Science: physical Earth, geology, oceanography, meteorology, seismology, paleontology
+- Economics: production, distribution, consumption of goods/services, finance, econometrics, game theory
+- Engineering: design and building of systems/structures, electrical, mechanical, civil, biomedical, chemical, aerospace
+- Environmental Science: human impact on environment, climate science, sustainability, pollution, conservation, renewable energy
+- Mathematics: abstract structures, quantities, proofs, statistics, probability, algebra, topology, optimization
+- Medicine: diagnosis, treatment, prevention of disease, epidemiology, oncology, immunology, pharmacology, public health
+- Neuroscience: nervous system, brain structure, neural function, cognitive science, neuroimaging
+- Physics: matter, energy, forces, fundamental laws, quantum mechanics, astrophysics, cosmology, particle physics
+- Psychology: mind, behavior, mental processes, cognitive psychology, developmental psychology, social psychology
+- Social Science: human society, culture, institutions, sociology, political science, linguistics, anthropology
+- Other: only if truly none of the above fit
+
+Return ONLY the parent field name."""
     response = await client.aio.models.generate_content(
         model="gemini-2.5-flash-lite",
-        contents=f'Map the academic field or subcategory "{raw_field}" to its parent field.',
+        contents=prompt,
         config=genai_types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema={"type": "STRING", "enum": FIELD_TAXONOMY},
@@ -124,7 +144,9 @@ async def _normalize_field_with_llm(raw_field: str) -> str:
     )
     result = response.text.strip().strip('"')
     if result in FIELD_TAXONOMY:
+        logger.info("Field classification: %r -> %r (LLM normalized)", raw_field, result)
         return result
+    logger.info("Field classification: LLM returned invalid %r for %r", result, raw_field)
     return "Other"
 
 
@@ -134,6 +156,7 @@ async def _extract_field_of_study(concepts_text: str) -> str:
     if match:
         field = match.group(1).strip()
         if field in FIELD_TAXONOMY:
+            logger.info("Field classification: exact match %r", field)
             return field
         # LLM-based normalization for subcategories / typos
         try:
@@ -141,6 +164,7 @@ async def _extract_field_of_study(concepts_text: str) -> str:
         except Exception:
             logger.warning("LLM field normalization failed for %r, defaulting to Other", field)
             return "Other"
+    logger.info("Field classification: no **Field** pattern found")
     return "Other"
 
 

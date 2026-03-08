@@ -246,6 +246,23 @@ class TestExtractFieldOfStudy:
             text = "**Field**: Underwater Basket Weaving"
             assert await _extract_field_of_study(text) == "Other"
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("subfield", [
+        "Agentic AI",
+        "Artificial Intelligence",
+        "Large Language Models",
+        "Generative AI",
+        "LLM Agents",
+    ])
+    async def test_ai_subfields_normalize_to_computer_science(self, subfield):
+        from main import _extract_field_of_study
+
+        with patch("main._normalize_field_with_llm", new_callable=AsyncMock, return_value="Computer Science") as mock_llm:
+            text = f"**Field**: {subfield}"
+            result = await _extract_field_of_study(text)
+            assert result == "Computer Science", f"{subfield!r} should map to Computer Science, got {result!r}"
+            mock_llm.assert_called_once_with(subfield)
+
 
 class TestExtractPaperMetadata:
     def test_extracts_title_and_authors(self):

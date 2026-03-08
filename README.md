@@ -10,6 +10,7 @@ Built for the **Gemini Live Agent Challenge — Creative Storyteller Track**, us
 
 - [Features](#features)
 - [Architecture](#architecture)
+- [Pipeline Time Budget](#pipeline-time-budget)
 - [Tech Stack](#tech-stack)
 - [Getting Started](#getting-started)
 - [Deployment](#deployment)
@@ -180,6 +181,59 @@ graph TD
     A7 -->|fact_check_result| A8
     A8 -->|final_story<br/>complete JSON| DB[(Firestore + GCS)]
 ```
+
+## Pipeline Time Budget
+
+End-to-end story generation takes **3–8 minutes** for a new paper (cache miss). The table below shows estimated wall-clock time per pipeline step and which external services each step depends on.
+
+| # | Agent | Typical Duration | External Calls | Notes |
+|---|-------|:----------------:|----------------|-------|
+| 1 | Paper Parser | 3–8 s | HTTP fetch (PDF download), Gemini Flash (structuring) | **< 1 s if paper is cached** — skips both download and LLM call |
+| 2 | Concept Extractor | 10–20 s | Gemini Flash (concept extraction + field classification) | Two sequential LLM calls (extraction, then field normalization) |
+| 3 | Language Simplifier | 10–15 s | Gemini Flash + `score_readability` tool | Readability scoring is local (regex-based Flesch-Kincaid), not an API call |
+| 4 | Narrative Designer | 15–25 s | Gemini Flash | Largest prompt — includes story template, simplified content, and concept anchors |
+| 4.5 | Narrative Gate | < 1 s | — (no external calls) | Pure logic: truncation to 100K chars + science anchor coverage check |
+| 5 | **Story Illustrator** | **90–180 s** | **Gemini Flash Image (interleaved text + image)** | **Bottleneck** — generates 5–6 inline images in a single call |
+| 6 | Audio Narrator | 30–60 s | Gemini TTS (one call per scene/section) | Runs **in parallel** with Fact Checker |
+| 7 | Fact Checker | 10–20 s | Gemini Flash + Gemini Embeddings (2–3 chunked calls) | Runs **in parallel** with Audio Narrator |
+| 8 | Story Assembler | 5–10 s | Gemini Flash + Firestore + GCS upload | Packages JSON, persists metadata + media |
+| | **Total (sequential)** | **~3–8 min** | | Parallelization of agents 6 & 7 saves ~30–60 s |
+
+### The Bottleneck: Story Illustrator (Agent 5)
+
+The Story Illustrator is the dominant cost in every pipeline run, accounting for **40–60%** of total wall-clock time. This is inherent to `gemini-2.5-flash-image`'s interleaved text+image generation mode:
+
+- **Single monolithic call** — the model generates all scene text and all illustrations (5–6 images) in one streaming response with `response_modalities=["TEXT", "IMAGE"]`. There is no way to parallelize individual image generation within this call.
+- **No tool support** — the image generation model does not support function calling, so the agent cannot use tools to break the work into smaller steps.
+- **High output token budget** — configured with `max_output_tokens=65536` and `temperature=0.8` to produce detailed illustrations alongside narrative text.
+- **Rate limits** — free-tier Gemini accounts are limited to ~30 image generation requests/day. Under the paid tier, throughput is higher but per-request latency remains the same.
+
+**Mitigations in place:**
+- The Narrative Gate (Agent 4.5) caps input to 100K chars (~25K tokens) to stay within the model's 32K input token limit, preventing unnecessarily long prompts that would increase generation time.
+- Agents 6 (Audio) and 7 (Fact Check) run in parallel immediately after Agent 5 finishes, overlapping ~30–60 s of work.
+- Deterministic story IDs enable aggressive caching — a cache hit returns instantly without re-running the pipeline.
+
+### Timeouts & Retry Configuration
+
+| Setting | Value | Where |
+|---------|-------|-------|
+| Cloud Run request timeout | 600 s (10 min) | `cloudbuild.yaml` |
+| Job service timeout | 15 min | `job_service.py` |
+| PDF download timeout | 60 s | `pdf_tools.py` |
+| Gemini API retries | 5 attempts, exponential backoff 2–60 s | `config.py` (`RETRY_OPTIONS`) |
+| Embedding retries | 5 attempts, exponential backoff 2–60 s | `factcheck_tools.py` |
+| arXiv rate limit | 3 s minimum between requests | `paper_search.py` |
+| TTS daily limit | Graceful degradation (skips remaining audio) | `audio_narrator.py` |
+
+### Cache Hit Fast Path
+
+When a story already exists for the same `(paper_id, age_group, style)` combination, the pipeline is bypassed entirely:
+
+```
+Cache lookup (Firestore) → Return cached story → < 100 ms
+```
+
+Cached results do not count against the user's daily quota.
 
 ## Tech Stack
 

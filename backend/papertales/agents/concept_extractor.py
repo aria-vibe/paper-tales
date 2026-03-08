@@ -80,7 +80,7 @@ You MUST output one of these 14 exact strings — do NOT output subcategory name
 
 - **Biology** — living organisms, genes, cells, ecosystems, evolution. Includes: genetics, ecology, microbiology, molecular biology, genomics, bioinformatics, cell biology.
 - **Chemistry** — composition, structure and reactions of matter. Includes: biochemistry, organic chemistry, materials science, nanotechnology, polymer science.
-- **Computer Science** — computation, algorithms, software, and information systems. Includes: machine learning, AI, deep learning, NLP, computer vision, robotics, data science, cybersecurity, software engineering.
+- **Computer Science** — computation, algorithms, software, and information systems. Includes: machine learning, AI, artificial intelligence, agentic AI, LLM agents, large language models, generative AI, foundation models, deep learning, reinforcement learning, NLP, natural language processing, computer vision, robotics, data science, cybersecurity, software engineering, information retrieval, human-computer interaction, distributed systems.
 - **Earth Science** — physical Earth and its processes. Includes: geology, oceanography, meteorology, seismology, paleontology.
 - **Economics** — production, distribution, and consumption of goods/services. Includes: finance, econometrics, macroeconomics, microeconomics, game theory.
 - **Engineering** — design and building of systems and structures. Includes: electrical, mechanical, civil, biomedical, chemical, aerospace engineering.
@@ -101,6 +101,10 @@ DISAMBIGUATION RULES (apply these before choosing):
 - Game theory (economics context) → **Economics** (not Mathematics)
 - Computational neuroscience → **Neuroscience** (not Computer Science)
 - Climate modeling → **Environmental Science** (not Earth Science or Computer Science)
+- Artificial intelligence, agentic AI, LLM agents, generative AI, foundation models → **Computer Science** (not Other)
+- Reinforcement learning → **Computer Science** (not Mathematics or Psychology)
+- Natural language processing, NLP → **Computer Science** (not Social Science or Psychology)
+- Human-computer interaction → **Computer Science** (not Psychology)
 
 **Field**: [one PARENT field name from the list above — e.g. "Computer Science" not "Machine Learning"]
 
