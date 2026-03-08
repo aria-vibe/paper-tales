@@ -19,6 +19,7 @@ export function AuthBar({ user, onSignOut, getToken, onUpgradeFromGuest }: AuthB
     <>
       <header className="auth-bar">
         <Link to="/" className="auth-logo">
+          <img src="/icon.png" alt="PaperTales" className="auth-logo-icon" />
           PaperTales
         </Link>
         <div className="auth-right">

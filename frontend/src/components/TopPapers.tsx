@@ -50,8 +50,41 @@ function getRadialPos(index: number): { left: string; top: string } {
   return { left: "5%", top: "5%" };
 }
 
+const SKELETON_COUNT = 6;
+const SKELETON_INDICES = Array.from({ length: SKELETON_COUNT }, (_, i) => i);
+
+function SkeletonCard({ index }: { index: number }) {
+  const pos = getRadialPos(index);
+  const tier = index < 4 ? 0 : 1;
+  const animClass = ANIM_CLASSES[index % ANIM_CLASSES.length];
+  const delay = `${(index * 0.6).toFixed(1)}s`;
+  const duration = `${6 + (index % 4)}s`;
+
+  return (
+    <div
+      className={`floating-card floating-tier-${tier} ${animClass} skeleton-card`}
+      style={
+        {
+          ...pos,
+          "--float-delay": delay,
+          "--float-dur": duration,
+        } as React.CSSProperties
+      }
+    >
+      <div className="floating-card-header">
+        <div className="skeleton-line skeleton-icon" />
+        <div className="skeleton-line skeleton-field" />
+      </div>
+      <div className="skeleton-line skeleton-title" />
+      <div className="skeleton-line skeleton-title-short" />
+      <div className="skeleton-line skeleton-meta" />
+    </div>
+  );
+}
+
 export function TopPapers({ getToken }: TopPapersProps) {
   const [papers, setPapers] = useState<FlatPaper[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +103,8 @@ export function TopPapers({ getToken }: TopPapersProps) {
         setPapers(flat);
       } catch {
         // Non-critical
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -78,6 +113,16 @@ export function TopPapers({ getToken }: TopPapersProps) {
       cancelled = true;
     };
   }, [getToken]);
+
+  if (loading) {
+    return (
+      <div className="floating-papers">
+        {SKELETON_INDICES.map((i) => (
+          <SkeletonCard key={i} index={i} />
+        ))}
+      </div>
+    );
+  }
 
   if (papers.length === 0) return null;
 
