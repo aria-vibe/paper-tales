@@ -1821,28 +1821,111 @@ a:hover {
   margin-top: 0;
 }
 
-.regenerate-btn {
-  display: inline-flex;
+.regen-btn {
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+.regen-btn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.08);
+  border-color: var(--accent-color) !important;
+}
+
+[data-theme="dark"] .regen-btn:hover:not(:disabled) {
+  background: rgba(129, 140, 248, 0.12);
+}
+
+/* Regeneration confirmation modal */
+.regen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  border: 1px solid var(--accent-color);
-  background: var(--accent-color);
-  color: #fff;
-  font-size: 0.85rem;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.15s ease-out;
+}
+
+.regen-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 28px 32px;
+  max-width: 440px;
+  width: calc(100% - 32px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  animation: fadeSlideIn 0.2s ease-out;
+}
+
+.regen-modal-title {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.regen-modal-desc {
+  margin: 0 0 20px;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.regen-modal-meta {
+  margin: 0 0 24px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+
+.regen-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 5px 0;
+}
+
+.regen-meta-row + .regen-meta-row {
+  border-top: 1px solid var(--border-color);
+}
+
+.regen-meta-row dt {
+  font-size: 0.8rem;
   font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
 }
 
-.regenerate-btn:hover:not(:disabled) {
-  opacity: 0.85;
+.regen-meta-row dd {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 260px;
 }
 
-.regenerate-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.regen-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.regen-confirm-btn {
+  background: var(--accent-color) !important;
+  border-color: var(--accent-color) !important;
+  color: #fff !important;
+}
+
+.regen-confirm-btn:hover:not(:disabled) {
+  opacity: 0.88;
 }
 
 /* ============================================================

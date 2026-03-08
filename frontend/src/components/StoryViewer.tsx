@@ -219,6 +219,7 @@ function ScenePage({
 
 export function StoryViewer({ story, getToken, isAdmin, onRegenerate }: StoryViewerProps) {
   const [regenerating, setRegenerating] = useState(false);
+  const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [currentScene, setCurrentScene] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -346,13 +347,15 @@ export function StoryViewer({ story, getToken, isAdmin, onRegenerate }: StoryVie
           )}
           {isAdmin && onRegenerate && (
             <button
-              className="regenerate-btn"
+              className="vote-btn regen-btn"
               disabled={regenerating}
-              onClick={() => {
-                setRegenerating(true);
-                onRegenerate();
-              }}
+              onClick={() => setShowRegenConfirm(true)}
+              aria-label="Regenerate story"
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <path d="M1 4v6h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
               {regenerating ? "Regenerating..." : "Regenerate"}
             </button>
           )}
@@ -450,6 +453,72 @@ export function StoryViewer({ story, getToken, isAdmin, onRegenerate }: StoryVie
           ))}
         </div>
       </div>
+
+      {/* Regeneration confirmation modal */}
+      {showRegenConfirm && (
+        <div className="regen-overlay" onClick={() => setShowRegenConfirm(false)}>
+          <div className="regen-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="regen-modal-title">Regenerate this story?</h3>
+            <p className="regen-modal-desc">
+              This will create a new version of the story with fresh illustrations and narration.
+            </p>
+            <dl className="regen-modal-meta">
+              <div className="regen-meta-row">
+                <dt>Story</dt>
+                <dd>{story.title}</dd>
+              </div>
+              {story.paperTitle && (
+                <div className="regen-meta-row">
+                  <dt>Paper</dt>
+                  <dd>{story.paperTitle}</dd>
+                </div>
+              )}
+              <div className="regen-meta-row">
+                <dt>Age Group</dt>
+                <dd>{story.ageGroup}</dd>
+              </div>
+              <div className="regen-meta-row">
+                <dt>Style</dt>
+                <dd>{story.style.replace("_", " ")}</dd>
+              </div>
+              {story.fieldOfStudy && (
+                <div className="regen-meta-row">
+                  <dt>Field</dt>
+                  <dd>{story.fieldOfStudy}</dd>
+                </div>
+              )}
+              {story.version !== undefined && (
+                <div className="regen-meta-row">
+                  <dt>Current Version</dt>
+                  <dd>v{story.version}</dd>
+                </div>
+              )}
+            </dl>
+            <div className="regen-modal-actions">
+              <button
+                className="vote-btn"
+                onClick={() => setShowRegenConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="vote-btn regen-confirm-btn"
+                onClick={() => {
+                  setShowRegenConfirm(false);
+                  setRegenerating(true);
+                  onRegenerate!();
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path d="M1 4v6h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Regenerate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </article>
   );
 }
