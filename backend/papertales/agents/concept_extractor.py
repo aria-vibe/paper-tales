@@ -75,25 +75,34 @@ For each core concept, provide a real-world analogy calibrated to {age_group}:
 - **<Concept>**: "<Analogy>"
 
 ### FIELD OF STUDY
-Classify this paper into exactly ONE field from this list.
-Pick the PARENT field, not a subcategory:
+Classify this paper into exactly ONE parent field from the list below.
+You MUST output one of these 14 exact strings — do NOT output subcategory names.
 
-- **Biology** (genetics, ecology, microbiology, molecular biology, genomics…)
-- **Chemistry** (biochemistry, organic chemistry, materials science, nanotechnology…)
-- **Computer Science** (machine learning, AI, deep learning, NLP, computer vision, robotics, data science…)
-- **Earth Science** (geology, oceanography, meteorology…)
-- **Economics** (finance, econometrics…)
-- **Engineering** (electrical, mechanical, biomedical engineering…)
-- **Environmental Science** (climate science, sustainability…)
-- **Mathematics** (statistics, probability, algebra, geometry…)
-- **Medicine** (epidemiology, oncology, immunology, pharmacology, public health…)
-- **Neuroscience** (cognitive science, neuroimaging…)
-- **Physics** (quantum mechanics, astrophysics, cosmology, particle physics, condensed matter…)
-- **Psychology** (behavioral science, cognitive psychology…)
-- **Social Science** (sociology, political science, linguistics, anthropology…)
-- **Other** (only if the paper truly does not fit any field above)
+- **Biology** — living organisms, genes, cells, ecosystems, evolution. Includes: genetics, ecology, microbiology, molecular biology, genomics, bioinformatics, cell biology.
+- **Chemistry** — composition, structure and reactions of matter. Includes: biochemistry, organic chemistry, materials science, nanotechnology, polymer science.
+- **Computer Science** — computation, algorithms, software, and information systems. Includes: machine learning, AI, deep learning, NLP, computer vision, robotics, data science, cybersecurity, software engineering.
+- **Earth Science** — physical Earth and its processes. Includes: geology, oceanography, meteorology, seismology, paleontology.
+- **Economics** — production, distribution, and consumption of goods/services. Includes: finance, econometrics, macroeconomics, microeconomics, game theory.
+- **Engineering** — design and building of systems and structures. Includes: electrical, mechanical, civil, biomedical, chemical, aerospace engineering.
+- **Environmental Science** — human impact on the natural environment. Includes: climate science, sustainability, pollution, conservation, renewable energy.
+- **Mathematics** — abstract structures, quantities, and proofs. Includes: statistics, probability, algebra, geometry, topology, number theory, optimization.
+- **Medicine** — diagnosis, treatment, and prevention of disease. Includes: epidemiology, oncology, immunology, pharmacology, public health, clinical trials, pathology.
+- **Neuroscience** — the nervous system, brain structure, and neural function. Includes: cognitive science, neuroimaging, computational neuroscience, neuropsychology.
+- **Physics** — matter, energy, forces, and fundamental laws. Includes: quantum mechanics, astrophysics, cosmology, particle physics, condensed matter, optics, thermodynamics.
+- **Psychology** — mind, behavior, and mental processes. Includes: behavioral science, cognitive psychology, developmental psychology, social psychology.
+- **Social Science** — human society, culture, and institutions. Includes: sociology, political science, linguistics, anthropology, education research.
+- **Other** — only if the paper truly does not fit any field above.
 
-**Field**: [one PARENT field name from the list above, e.g. "Computer Science" not "Machine Learning"]
+DISAMBIGUATION RULES (apply these before choosing):
+- Bioinformatics, computational biology → **Biology** (not Computer Science)
+- Materials science, nanotechnology → **Chemistry** (not Engineering)
+- Biomedical engineering → **Engineering** (not Medicine or Biology)
+- Public health, epidemiology → **Medicine** (not Social Science)
+- Game theory (economics context) → **Economics** (not Mathematics)
+- Computational neuroscience → **Neuroscience** (not Computer Science)
+- Climate modeling → **Environmental Science** (not Earth Science or Computer Science)
+
+**Field**: [one PARENT field name from the list above — e.g. "Computer Science" not "Machine Learning"]
 
 ### VISUAL OPPORTUNITIES
 List 3–5 scenes that the downstream illustration agent could draw to

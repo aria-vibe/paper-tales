@@ -61,6 +61,13 @@ htmlcov/
 # Demo / test output
 backend/demo_output/
 backend/test_output/
+backend/test_output_online/
+
+# Temporary / debug files
+*.log
+*.tmp
+*.bak
+debug_*
 
 # Ad-hoc test scripts
 backend/test_story_generation.py

@@ -196,47 +196,55 @@ class TestParseFinalStory:
 
 
 class TestExtractFieldOfStudy:
-    def test_extracts_valid_field(self):
+    @pytest.mark.asyncio
+    async def test_extracts_valid_field(self):
         from main import _extract_field_of_study
 
         text = "Some analysis...\n**Field**: Physics\nMore text"
-        assert _extract_field_of_study(text) == "Physics"
+        assert await _extract_field_of_study(text) == "Physics"
 
-    def test_returns_other_for_invalid(self):
+    @pytest.mark.asyncio
+    async def test_returns_other_for_missing_field(self):
         from main import _extract_field_of_study
 
         text = "No field here"
-        assert _extract_field_of_study(text) == "Other"
+        assert await _extract_field_of_study(text) == "Other"
 
-    def test_returns_other_for_unknown_field(self):
+    @pytest.mark.asyncio
+    async def test_exact_match_bypasses_llm(self):
         from main import _extract_field_of_study
 
-        text = "**Field**: Underwater Basket Weaving"
-        assert _extract_field_of_study(text) == "Other"
+        with patch("main._normalize_field_with_llm") as mock_llm:
+            text = "**Field**: Physics"
+            result = await _extract_field_of_study(text)
+            assert result == "Physics"
+            mock_llm.assert_not_called()
 
-    def test_resolves_machine_learning_to_cs(self):
+    @pytest.mark.asyncio
+    async def test_subcategory_calls_llm_normalization(self):
         from main import _extract_field_of_study
 
-        text = "**Field**: Machine Learning"
-        assert _extract_field_of_study(text) == "Computer Science"
+        with patch("main._normalize_field_with_llm", new_callable=AsyncMock, return_value="Computer Science") as mock_llm:
+            text = "**Field**: Machine Learning"
+            result = await _extract_field_of_study(text)
+            assert result == "Computer Science"
+            mock_llm.assert_called_once_with("Machine Learning")
 
-    def test_resolves_case_insensitive(self):
+    @pytest.mark.asyncio
+    async def test_llm_normalization_maps_genetics_to_biology(self):
         from main import _extract_field_of_study
 
-        text = "**Field**: artificial intelligence"
-        assert _extract_field_of_study(text) == "Computer Science"
+        with patch("main._normalize_field_with_llm", new_callable=AsyncMock, return_value="Biology"):
+            text = "**Field**: Genetics"
+            assert await _extract_field_of_study(text) == "Biology"
 
-    def test_resolves_genetics_to_biology(self):
+    @pytest.mark.asyncio
+    async def test_llm_failure_falls_back_to_other(self):
         from main import _extract_field_of_study
 
-        text = "**Field**: Genetics"
-        assert _extract_field_of_study(text) == "Biology"
-
-    def test_exact_match_takes_priority(self):
-        from main import _extract_field_of_study
-
-        text = "**Field**: Physics"
-        assert _extract_field_of_study(text) == "Physics"
+        with patch("main._normalize_field_with_llm", new_callable=AsyncMock, side_effect=Exception("API error")):
+            text = "**Field**: Underwater Basket Weaving"
+            assert await _extract_field_of_study(text) == "Other"
 
 
 class TestExtractPaperMetadata:

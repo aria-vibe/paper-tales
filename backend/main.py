@@ -26,7 +26,6 @@ from papertales.auth import UserInfo, verify_firebase_token
 from papertales.firestore_service import STORIES_COLLECTION
 from papertales.agents.audio_narrator import _extract_scene_texts
 from papertales.config import (
-    FIELD_SYNONYMS,
     FIELD_TAXONOMY,
     STATE_AUDIO,
     STATE_CONCEPTS,
@@ -109,17 +108,39 @@ def _get_job_service():
     return _job_service
 
 
-def _extract_field_of_study(concepts_text: str) -> str:
+async def _normalize_field_with_llm(raw_field: str) -> str:
+    """Use Gemini to map any subcategory/typo to a parent field."""
+    from google import genai
+    from google.genai import types as genai_types
+
+    client = genai.Client()
+    response = await client.aio.models.generate_content(
+        model="gemini-2.5-flash-lite",
+        contents=f'Map the academic field or subcategory "{raw_field}" to its parent field.',
+        config=genai_types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={"type": "STRING", "enum": FIELD_TAXONOMY},
+        ),
+    )
+    result = response.text.strip().strip('"')
+    if result in FIELD_TAXONOMY:
+        return result
+    return "Other"
+
+
+async def _extract_field_of_study(concepts_text: str) -> str:
     """Extract field of study from concept extractor output."""
     match = re.search(r"\*\*Field\*\*:\s*(.+?)(?:\n|$)", concepts_text)
     if match:
         field = match.group(1).strip()
         if field in FIELD_TAXONOMY:
             return field
-        # Fuzzy match: check synonyms (case-insensitive)
-        canonical = FIELD_SYNONYMS.get(field.lower())
-        if canonical:
-            return canonical
+        # LLM-based normalization for subcategories / typos
+        try:
+            return await _normalize_field_with_llm(field)
+        except Exception:
+            logger.warning("LLM field normalization failed for %r, defaulting to Other", field)
+            return "Other"
     return "Other"
 
 
@@ -518,7 +539,7 @@ async def _run_pipeline_task(
                 logger.info("Paper cache SAVED for paper_id=%s (%d chars)", paper_id, len(str(parsed_paper_content)))
 
         # Extract metadata from pipeline state
-        field = _extract_field_of_study(session.state.get(STATE_CONCEPTS, ""))
+        field = await _extract_field_of_study(session.state.get(STATE_CONCEPTS, ""))
         paper_title, authors = _extract_paper_metadata(session.state.get(STATE_PAPER_TEXT, ""))
 
         # Persist to Firestore + GCS
