@@ -2,9 +2,10 @@
 
 import asyncio
 import logging
+import re
 import time
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 from google import genai
@@ -58,6 +59,14 @@ class SearchResult:
     authors: list[str]
 
 
+@dataclass
+class RefinedQuery:
+    """Structured output from query refinement LLM call."""
+    arxiv_id: str | None = None  # Direct arXiv ID if LLM knows it
+    title: str | None = None     # Exact paper title if LLM knows it
+    keywords: str = ""           # Fallback search keywords
+
+
 def is_url_input(user_input: str) -> bool:
     """Check if input looks like a URL rather than a natural language query."""
     stripped = user_input.strip()
@@ -81,30 +90,65 @@ def _call_llm(contents: str) -> str:
     return response.text.strip()
 
 
-async def refine_query_with_llm(question: str) -> str:
-    """Use Gemini flash-lite to convert a natural language question into arXiv search terms."""
+_ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}$")
+
+
+def _parse_refined_response(text: str) -> RefinedQuery:
+    """Parse the structured LLM response into a RefinedQuery."""
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if line.upper().startswith("ARXIV:"):
+            raw_id = line.split(":", 1)[1].strip()
+            if _ARXIV_ID_RE.match(raw_id):
+                return RefinedQuery(arxiv_id=raw_id)
+        elif line.upper().startswith("TITLE:"):
+            title = line.split(":", 1)[1].strip()
+            if title:
+                return RefinedQuery(title=title)
+        elif line.upper().startswith("KEYWORDS:"):
+            kw = line.split(":", 1)[1].strip()
+            if kw:
+                return RefinedQuery(keywords=kw)
+    # Fallback: treat entire response as keywords
+    return RefinedQuery(keywords=text.strip())
+
+
+async def refine_query_with_llm(question: str) -> RefinedQuery:
+    """Use Gemini to determine the best arXiv search strategy for a question."""
     try:
-        refined = await asyncio.to_thread(
+        text = await asyncio.to_thread(
             _call_llm,
-            "You are helping search for academic papers on arXiv. "
-            "Convert the user's question into an effective arXiv search query.\n\n"
+            "You are helping find the most relevant academic paper on arXiv for a user's question.\n\n"
+            "Return ONE of these three formats:\n\n"
+            "1. If you know the EXACT arXiv ID of the foundational/seminal paper, return:\n"
+            "   ARXIV:<id>\n"
+            "   Example: ARXIV:1706.03762\n\n"
+            "2. If you know the exact TITLE of the relevant paper but not the ID, return:\n"
+            "   TITLE:<exact paper title>\n"
+            "   Example: TITLE:Attention Is All You Need\n\n"
+            "3. Otherwise, return 3-5 search keywords:\n"
+            "   KEYWORDS:<keyword1> <keyword2> <keyword3>\n"
+            "   Example: KEYWORDS:reinforcement learning survey policy gradient\n\n"
             "Guidelines:\n"
-            "- For definitional questions ('what is X?', 'explain X'), include the "
-            "concept name and add 'survey' or 'overview' to find explanatory papers. "
-            "If you know the seminal paper that introduced the concept, use its key terms.\n"
-            "- For applied questions ('how to do X with Y'), focus on methodology keywords.\n"
-            "- Return 3-5 keywords/phrases separated by spaces.\n"
-            "- Return ONLY the search terms, nothing else.\n\n"
+            "- For 'what is X?' questions, find the paper that INTRODUCED or DEFINED X\n"
+            "- Prefer foundational/seminal papers over recent applied papers\n"
+            "- Only use ARXIV: if you are CERTAIN of the exact ID\n"
+            "- Only use TITLE: if you are CERTAIN of the exact title\n"
+            "- Use KEYWORDS: when you're unsure — include 'survey' or 'overview' for definitional questions\n\n"
             "Examples:\n"
-            "Q: what is LLM -> large language model attention transformer\n"
-            "Q: what is CRISPR -> CRISPR Cas9 genome editing\n"
-            "Q: how do neural networks learn -> neural network backpropagation training\n"
-            "Q: what is reinforcement learning -> reinforcement learning survey policy reward\n\n"
+            "Q: what is LLM? -> ARXIV:1706.03762\n"
+            "Q: what is BERT? -> ARXIV:1810.04805\n"
+            "Q: what is GPT? -> ARXIV:2005.14165\n"
+            "Q: what is diffusion model? -> ARXIV:2006.11239\n"
+            "Q: what is AlphaFold? -> TITLE:Highly accurate protein structure prediction with AlphaFold\n"
+            "Q: what is CRISPR? -> KEYWORDS:CRISPR Cas9 genome editing survey\n"
+            "Q: how do vaccines work? -> KEYWORDS:vaccine immune response mechanism review\n\n"
             f"Q: {question} ->",
         )
-        if not refined:
-            return question
-        return refined
+        result = _parse_refined_response(text)
+        if not result.arxiv_id and not result.title and not result.keywords:
+            return RefinedQuery(keywords=question)
+        return result
     except Exception as exc:
         logger.warning("LLM query refinement failed, using raw query: %s", exc)
         raise SearchServiceError("Search service temporarily unavailable. Try a direct URL.") from exc
@@ -127,45 +171,51 @@ async def _rate_limited_arxiv_get(params: dict) -> str:
     return resp.text
 
 
-async def search_arxiv(query: str, max_results: int = 10) -> list[ArxivResult]:
-    """Search arXiv with dual strategy: title search + full-text search, merged and deduped."""
+async def fetch_arxiv_by_id(arxiv_id: str) -> list[ArxivResult]:
+    """Fetch a specific paper by arXiv ID using the id_list parameter."""
+    params = {"id_list": arxiv_id}
+    try:
+        text = await _rate_limited_arxiv_get(params)
+    except httpx.HTTPError as exc:
+        logger.error("arXiv ID lookup failed for %s: %s", arxiv_id, exc)
+        return []
+    results = _parse_arxiv_xml(text)
+    return results
 
-    # Build two queries: title-focused and all-fields
-    ti_params = {
-        "search_query": f"ti:{query}",
-        "start": 0,
-        "max_results": max_results,
-        "sortBy": "relevance",
-        "sortOrder": "descending",
-    }
-    all_params = {
+
+async def search_arxiv(query: str, max_results: int = 10) -> list[ArxivResult]:
+    """Search arXiv by keyword query (all fields)."""
+    params = {
         "search_query": f"all:{query}",
         "start": 0,
         "max_results": max_results,
         "sortBy": "relevance",
         "sortOrder": "descending",
     }
-
     try:
-        # Run both searches with rate limiting (sequentially to respect arXiv rate limit)
-        ti_text = await _rate_limited_arxiv_get(ti_params)
-        all_text = await _rate_limited_arxiv_get(all_params)
+        text = await _rate_limited_arxiv_get(params)
     except httpx.HTTPError as exc:
         logger.error("arXiv API request failed: %s", exc)
         raise SearchServiceError("Paper search temporarily unavailable. Try a direct URL.") from exc
+    return _parse_arxiv_xml(text)
 
-    ti_results = _parse_arxiv_xml(ti_text)
-    all_results = _parse_arxiv_xml(all_text)
 
-    # Merge: title matches first (more likely to be about the topic), then all-field matches
-    seen_ids: set[str] = set()
-    merged: list[ArxivResult] = []
-    for r in ti_results + all_results:
-        if r.arxiv_id not in seen_ids:
-            seen_ids.add(r.arxiv_id)
-            merged.append(r)
-
-    return merged
+async def search_arxiv_by_title(title: str, max_results: int = 5) -> list[ArxivResult]:
+    """Search arXiv by exact title match."""
+    # Use quoted phrase for exact title search
+    params = {
+        "search_query": f'ti:"{title}"',
+        "start": 0,
+        "max_results": max_results,
+        "sortBy": "relevance",
+        "sortOrder": "descending",
+    }
+    try:
+        text = await _rate_limited_arxiv_get(params)
+    except httpx.HTTPError as exc:
+        logger.error("arXiv title search failed: %s", exc)
+        return []
+    return _parse_arxiv_xml(text)
 
 
 def _parse_arxiv_xml(xml_text: str) -> list[ArxivResult]:
@@ -252,6 +302,11 @@ async def select_best_result(question: str, results: list[ArxivResult]) -> Arxiv
 async def search_paper(question: str) -> SearchResult:
     """Top-level orchestrator: refine query, search arXiv, select best result.
 
+    Three-tier strategy:
+    1. Direct arXiv ID lookup (fastest, most accurate for known papers)
+    2. Exact title search (fast, reliable when LLM knows the title)
+    3. Keyword search with LLM selection (fallback for unknown papers)
+
     Raises:
         PaperNotFoundError: If no papers match the query.
         SearchServiceError: If arXiv API or LLM is unavailable.
@@ -260,10 +315,38 @@ async def search_paper(question: str) -> SearchResult:
     if not question:
         raise PaperNotFoundError('No papers found for "". Try rephrasing.')
 
-    refined_query = await refine_query_with_llm(question)
-    logger.info("Refined query: %r -> %r", question, refined_query)
+    refined = await refine_query_with_llm(question)
+    logger.info("Refined query for %r: id=%s title=%s keywords=%r",
+                question, refined.arxiv_id, refined.title, refined.keywords)
 
-    results = await search_arxiv(refined_query)
+    # Tier 1: Direct ID lookup — instant, most accurate
+    if refined.arxiv_id:
+        results = await fetch_arxiv_by_id(refined.arxiv_id)
+        if results:
+            r = results[0]
+            logger.info("Direct ID hit: %s (%s)", r.title, r.url)
+            return SearchResult(
+                paper_url=r.url, paper_title=r.title,
+                arxiv_id=r.arxiv_id, authors=r.authors,
+            )
+        logger.warning("Direct ID %s not found, falling through", refined.arxiv_id)
+
+    # Tier 2: Exact title search
+    if refined.title:
+        results = await search_arxiv_by_title(refined.title)
+        if results:
+            best = await select_best_result(question, results)
+            if best:
+                logger.info("Title search hit: %s (%s)", best.title, best.url)
+                return SearchResult(
+                    paper_url=best.url, paper_title=best.title,
+                    arxiv_id=best.arxiv_id, authors=best.authors,
+                )
+        logger.warning("Title search for %r returned no results, falling through", refined.title)
+
+    # Tier 3: Keyword search (fallback)
+    keywords = refined.keywords or question
+    results = await search_arxiv(keywords)
     if not results:
         raise PaperNotFoundError(f'No papers found for "{question}". Try rephrasing.')
 
@@ -271,7 +354,7 @@ async def search_paper(question: str) -> SearchResult:
     if best is None:
         raise PaperNotFoundError(f'No papers found for "{question}". Try rephrasing.')
 
-    logger.info("Selected paper: %s (%s)", best.title, best.url)
+    logger.info("Keyword search selected: %s (%s)", best.title, best.url)
     return SearchResult(
         paper_url=best.url,
         paper_title=best.title,

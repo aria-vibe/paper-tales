@@ -8,9 +8,11 @@ import pytest
 from papertales.paper_search import (
     ArxivResult,
     PaperNotFoundError,
+    RefinedQuery,
     SearchResult,
     SearchServiceError,
     _parse_arxiv_xml,
+    _parse_refined_response,
     is_url_input,
     refine_query_with_llm,
     search_arxiv,
@@ -103,22 +105,83 @@ class TestParseArxivXml:
 
 
 # ---------------------------------------------------------------------------
+# _parse_refined_response
+# ---------------------------------------------------------------------------
+
+
+class TestParseRefinedResponse:
+    def test_parses_arxiv_id(self):
+        r = _parse_refined_response("ARXIV:1706.03762")
+        assert r.arxiv_id == "1706.03762"
+        assert r.title is None
+        assert r.keywords == ""
+
+    def test_parses_title(self):
+        r = _parse_refined_response("TITLE:Attention Is All You Need")
+        assert r.title == "Attention Is All You Need"
+        assert r.arxiv_id is None
+
+    def test_parses_keywords(self):
+        r = _parse_refined_response("KEYWORDS:transformer attention mechanism")
+        assert r.keywords == "transformer attention mechanism"
+        assert r.arxiv_id is None
+        assert r.title is None
+
+    def test_fallback_to_keywords_on_unrecognized(self):
+        r = _parse_refined_response("transformer attention mechanism")
+        assert r.keywords == "transformer attention mechanism"
+
+    def test_rejects_invalid_arxiv_id(self):
+        r = _parse_refined_response("ARXIV:not-a-real-id")
+        assert r.arxiv_id is None
+        # Falls through to treat as raw keywords
+        assert r.keywords == "ARXIV:not-a-real-id"
+
+    def test_case_insensitive_prefix(self):
+        r = _parse_refined_response("arxiv:1706.03762")
+        assert r.arxiv_id == "1706.03762"
+
+    def test_handles_5_digit_id(self):
+        r = _parse_refined_response("ARXIV:2301.12345")
+        assert r.arxiv_id == "2301.12345"
+
+    def test_handles_whitespace(self):
+        r = _parse_refined_response("  ARXIV:1706.03762  ")
+        assert r.arxiv_id == "1706.03762"
+
+
+# ---------------------------------------------------------------------------
 # refine_query_with_llm
 # ---------------------------------------------------------------------------
 
 
 class TestRefineQueryWithLlm:
     @patch("papertales.paper_search._call_llm")
-    def test_returns_refined_keywords(self, mock_call_llm):
-        mock_call_llm.return_value = "transformer attention mechanism self-attention"
+    def test_returns_arxiv_id_when_known(self, mock_call_llm):
+        mock_call_llm.return_value = "ARXIV:1706.03762"
+
+        result = asyncio.get_event_loop().run_until_complete(
+            refine_query_with_llm("what is LLM")
+        )
+        assert result.arxiv_id == "1706.03762"
+
+    @patch("papertales.paper_search._call_llm")
+    def test_returns_title_when_known(self, mock_call_llm):
+        mock_call_llm.return_value = "TITLE:Attention Is All You Need"
 
         result = asyncio.get_event_loop().run_until_complete(
             refine_query_with_llm("what is a transformer")
         )
-        assert result == "transformer attention mechanism self-attention"
-        # Verify prompt includes intent-aware guidelines
-        prompt = mock_call_llm.call_args[0][0]
-        assert "foundational" in prompt.lower() or "seminal" in prompt.lower() or "survey" in prompt.lower()
+        assert result.title == "Attention Is All You Need"
+
+    @patch("papertales.paper_search._call_llm")
+    def test_returns_keywords_fallback(self, mock_call_llm):
+        mock_call_llm.return_value = "KEYWORDS:vaccine immune response survey"
+
+        result = asyncio.get_event_loop().run_until_complete(
+            refine_query_with_llm("how do vaccines work")
+        )
+        assert result.keywords == "vaccine immune response survey"
 
     @patch("papertales.paper_search._call_llm")
     def test_raises_on_llm_failure(self, mock_call_llm):
@@ -129,53 +192,17 @@ class TestRefineQueryWithLlm:
                 refine_query_with_llm("what is a transformer")
             )
 
-
-# ---------------------------------------------------------------------------
-# search_arxiv (dual search)
-# ---------------------------------------------------------------------------
-
-
-class TestSearchArxiv:
-    @patch("papertales.paper_search._rate_limited_arxiv_get")
-    def test_dual_search_merges_results(self, mock_get):
-        """Title search and all-fields search are merged and deduped."""
-        mock_get.side_effect = [
-            # First call: title search
-            SAMPLE_ARXIV_XML,
-            # Second call: all-fields search (same papers to test dedup)
-            SAMPLE_ARXIV_XML,
-        ]
-        results = asyncio.get_event_loop().run_until_complete(search_arxiv("test"))
-        # Should be deduped to 2, not 4
-        assert len(results) == 2
-        assert mock_get.call_count == 2
-
-    @patch("papertales.paper_search._rate_limited_arxiv_get")
-    def test_title_results_come_first(self, mock_get):
-        """Title-matched papers should appear before all-field matches."""
-        ti_xml = """<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <entry>
-    <id>http://arxiv.org/abs/1111.11111v1</id>
-    <title>Title Match Paper</title>
-    <summary>Found via title.</summary>
-    <author><name>Author A</name></author>
-  </entry>
-</feed>"""
-        all_xml = """<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <entry>
-    <id>http://arxiv.org/abs/2222.22222v1</id>
-    <title>All Fields Paper</title>
-    <summary>Found via all fields.</summary>
-    <author><name>Author B</name></author>
-  </entry>
-</feed>"""
-        mock_get.side_effect = [ti_xml, all_xml]
-        results = asyncio.get_event_loop().run_until_complete(search_arxiv("test"))
-        assert len(results) == 2
-        assert results[0].title == "Title Match Paper"
-        assert results[1].title == "All Fields Paper"
+    @patch("papertales.paper_search._call_llm")
+    def test_prompt_includes_strategy_instructions(self, mock_call_llm):
+        mock_call_llm.return_value = "KEYWORDS:test"
+        asyncio.get_event_loop().run_until_complete(
+            refine_query_with_llm("what is X")
+        )
+        prompt = mock_call_llm.call_args[0][0]
+        assert "ARXIV:" in prompt
+        assert "TITLE:" in prompt
+        assert "KEYWORDS:" in prompt
+        assert "foundational" in prompt.lower() or "seminal" in prompt.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +242,6 @@ class TestSelectBestResult:
 
     @patch("papertales.paper_search._call_llm")
     def test_prefers_foundational_papers_in_prompt(self, mock_call_llm):
-        """Selection prompt should guide toward foundational/explanatory papers."""
         mock_call_llm.return_value = "1"
 
         results = [
@@ -248,11 +274,36 @@ class TestSelectBestResult:
 
 
 class TestSearchPaper:
-    @patch("papertales.paper_search.search_arxiv")
+    @patch("papertales.paper_search.fetch_arxiv_by_id")
     @patch("papertales.paper_search.refine_query_with_llm")
-    def test_end_to_end(self, mock_refine, mock_search):
-        mock_refine.return_value = "transformer attention"
-        mock_search.return_value = [
+    def test_tier1_direct_id_lookup(self, mock_refine, mock_fetch_id):
+        """When LLM returns an arXiv ID, fetch directly without keyword search."""
+        mock_refine.return_value = RefinedQuery(arxiv_id="1706.03762")
+        mock_fetch_id.return_value = [
+            ArxivResult(
+                title="Attention Is All You Need",
+                arxiv_id="1706.03762",
+                url="https://arxiv.org/abs/1706.03762",
+                summary="The dominant sequence...",
+                authors=["Vaswani"],
+            )
+        ]
+
+        result = asyncio.get_event_loop().run_until_complete(
+            search_paper("what is LLM")
+        )
+        assert result.paper_title == "Attention Is All You Need"
+        assert result.arxiv_id == "1706.03762"
+        mock_fetch_id.assert_called_once_with("1706.03762")
+
+    @patch("papertales.paper_search.search_arxiv_by_title")
+    @patch("papertales.paper_search.fetch_arxiv_by_id")
+    @patch("papertales.paper_search.refine_query_with_llm")
+    def test_tier2_title_search(self, mock_refine, mock_fetch_id, mock_title_search):
+        """When LLM returns a title, search by title."""
+        mock_refine.return_value = RefinedQuery(title="Attention Is All You Need")
+        mock_fetch_id.return_value = []  # No direct ID
+        mock_title_search.return_value = [
             ArxivResult(
                 title="Attention Is All You Need",
                 arxiv_id="1706.03762",
@@ -265,9 +316,49 @@ class TestSearchPaper:
         result = asyncio.get_event_loop().run_until_complete(
             search_paper("what is a transformer")
         )
-        assert isinstance(result, SearchResult)
-        assert result.paper_url == "https://arxiv.org/abs/1706.03762"
         assert result.paper_title == "Attention Is All You Need"
+
+    @patch("papertales.paper_search.search_arxiv")
+    @patch("papertales.paper_search.refine_query_with_llm")
+    def test_tier3_keyword_fallback(self, mock_refine, mock_search):
+        """When LLM returns only keywords, fall back to keyword search."""
+        mock_refine.return_value = RefinedQuery(keywords="vaccine immune response survey")
+        mock_search.return_value = [
+            ArxivResult(
+                title="A Survey of Vaccine Mechanisms",
+                arxiv_id="2301.00001",
+                url="https://arxiv.org/abs/2301.00001",
+                summary="Vaccines work by...",
+                authors=["Author"],
+            )
+        ]
+
+        result = asyncio.get_event_loop().run_until_complete(
+            search_paper("how do vaccines work")
+        )
+        assert result.paper_title == "A Survey of Vaccine Mechanisms"
+
+    @patch("papertales.paper_search.search_arxiv")
+    @patch("papertales.paper_search.fetch_arxiv_by_id")
+    @patch("papertales.paper_search.refine_query_with_llm")
+    def test_tier1_miss_falls_to_tier3(self, mock_refine, mock_fetch_id, mock_search):
+        """When direct ID lookup fails, fall through to keyword search."""
+        mock_refine.return_value = RefinedQuery(arxiv_id="9999.99999", keywords="test query")
+        mock_fetch_id.return_value = []  # ID not found
+        mock_search.return_value = [
+            ArxivResult(
+                title="Fallback Paper",
+                arxiv_id="2301.00001",
+                url="https://arxiv.org/abs/2301.00001",
+                summary="Found via keywords",
+                authors=["Author"],
+            )
+        ]
+
+        result = asyncio.get_event_loop().run_until_complete(
+            search_paper("some question")
+        )
+        assert result.paper_title == "Fallback Paper"
 
     def test_empty_query_raises(self):
         with pytest.raises(PaperNotFoundError):
@@ -276,7 +367,7 @@ class TestSearchPaper:
     @patch("papertales.paper_search.search_arxiv")
     @patch("papertales.paper_search.refine_query_with_llm")
     def test_no_results_raises(self, mock_refine, mock_search):
-        mock_refine.return_value = "xyznonexistent"
+        mock_refine.return_value = RefinedQuery(keywords="xyznonexistent")
         mock_search.return_value = []
 
         with pytest.raises(PaperNotFoundError):
