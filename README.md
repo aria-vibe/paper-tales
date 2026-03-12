@@ -414,7 +414,7 @@ Firebase Hosting is configured to rewrite `/api/**` requests to the Cloud Run ba
 
 ## Testing
 
-The backend has 290+ tests covering agents, tools, API endpoints, and services.
+The backend has 300+ tests covering agents, tools, API endpoints, and services.
 
 ```bash
 cd backend
@@ -458,12 +458,14 @@ uv run pytest tests/ --cov=papertales
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/health` | Health check |
+| `GET` | `/api/me` | Get current user profile (admin status, registration date) |
 | `POST` | `/api/generate` | Start story generation (accepts `paper_url` or `query`) |
 | `GET` | `/api/jobs/{job_id}` | Poll job status and current stage |
 | `GET` | `/api/jobs/active` | Get active job for current user |
 | `GET` | `/api/jobs` | List all jobs for current user |
 | `GET` | `/api/stories/{story_id}` | Retrieve completed story |
 | `GET` | `/api/stories/{story_id}/media/{filename}` | Stream image/audio from GCS |
+| `POST` | `/api/stories/{story_id}/regenerate` | Admin-only: regenerate a story |
 | `POST` | `/api/stories/{story_id}/vote` | Cast up/down vote |
 | `GET` | `/api/quota` | Check remaining daily quota |
 | `GET` | `/api/top-papers` | Leaderboard by field (5-min TTL cache) |
@@ -538,13 +540,15 @@ paper-tales/
 │   ├── papertales/
 │   │   ├── agents/           # 9 pipeline agents
 │   │   ├── tools/            # PDF, audio, factcheck, storage tools
+│   │   ├── agent.py          # Root orchestrator (SequentialAgent + ParallelAgent)
 │   │   ├── config.py         # Models, state keys, field taxonomy
 │   │   ├── auth.py           # Firebase token verification
 │   │   ├── firestore_service.py  # Firestore + GCS persistence
 │   │   ├── job_service.py    # Job lifecycle management
+│   │   ├── log_context.py    # Structured logging with session/job correlation
 │   │   ├── paper_search.py   # Natural language → arXiv search
 │   │   └── url_validation.py # Archive URL whitelist
-│   ├── tests/                # 290+ pytest tests
+│   ├── tests/                # 300+ pytest tests
 │   ├── main.py               # FastAPI application
 │   ├── demo_pipeline.py      # CLI for testing the pipeline
 │   ├── Dockerfile            # Cloud Run container
@@ -552,10 +556,11 @@ paper-tales/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/       # React UI components
-│   │   ├── pages/            # Route pages
-│   │   ├── services/         # API client
+│   │   ├── contexts/         # Theme provider
 │   │   ├── hooks/            # Auth, media, story generation
-│   │   └── contexts/         # Theme provider
+│   │   ├── pages/            # Route pages (Home, Login, Story)
+│   │   ├── services/         # API client
+│   │   └── types/            # TypeScript type definitions
 │   ├── package.json          # Node dependencies
 │   └── vite.config.ts        # Dev server + API proxy
 ├── cloudbuild.yaml           # Full-stack CI/CD pipeline

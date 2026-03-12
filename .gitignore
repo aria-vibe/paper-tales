@@ -73,13 +73,22 @@ debug_*
 backend/test_story_generation.py
 backend/test_story_generation_online.py
 
+# One-shot / dev-only scripts
+scripts/
+
 # Media artifacts
 *.wav
 *.mp3
 *.png
+!thumbnail.png
 *.jpg
 !frontend/public/*
 !frontend/public/**/*
+
+# Submission guide & demo output (internal only)
+SUBMISSION_GUIDE.md
+demo_voiceover/
+demo_cutscenes/
 
 # Claude
 .claude/

@@ -1,7 +1,7 @@
 """Tests for paper search module."""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -108,34 +108,74 @@ class TestParseArxivXml:
 
 
 class TestRefineQueryWithLlm:
-    @patch("papertales.paper_search.genai.Client")
-    def test_returns_refined_keywords(self, mock_client_cls):
-        mock_client = mock_client_cls.return_value
-        mock_response = MagicMock()
-        mock_response.text = "transformer attention mechanism self-attention"
-        mock_client.models.generate_content.return_value = mock_response
-        # Reset singleton
-        import papertales.paper_search as ps
-        ps._genai_client = None
+    @patch("papertales.paper_search._call_llm")
+    def test_returns_refined_keywords(self, mock_call_llm):
+        mock_call_llm.return_value = "transformer attention mechanism self-attention"
 
         result = asyncio.get_event_loop().run_until_complete(
             refine_query_with_llm("what is a transformer")
         )
         assert result == "transformer attention mechanism self-attention"
-        ps._genai_client = None
+        # Verify prompt includes intent-aware guidelines
+        prompt = mock_call_llm.call_args[0][0]
+        assert "foundational" in prompt.lower() or "seminal" in prompt.lower() or "survey" in prompt.lower()
 
-    @patch("papertales.paper_search.genai.Client")
-    def test_raises_on_llm_failure(self, mock_client_cls):
-        mock_client = mock_client_cls.return_value
-        mock_client.models.generate_content.side_effect = Exception("API error")
-        import papertales.paper_search as ps
-        ps._genai_client = None
+    @patch("papertales.paper_search._call_llm")
+    def test_raises_on_llm_failure(self, mock_call_llm):
+        mock_call_llm.side_effect = Exception("API error")
 
         with pytest.raises(SearchServiceError):
             asyncio.get_event_loop().run_until_complete(
                 refine_query_with_llm("what is a transformer")
             )
-        ps._genai_client = None
+
+
+# ---------------------------------------------------------------------------
+# search_arxiv (dual search)
+# ---------------------------------------------------------------------------
+
+
+class TestSearchArxiv:
+    @patch("papertales.paper_search._rate_limited_arxiv_get")
+    def test_dual_search_merges_results(self, mock_get):
+        """Title search and all-fields search are merged and deduped."""
+        mock_get.side_effect = [
+            # First call: title search
+            SAMPLE_ARXIV_XML,
+            # Second call: all-fields search (same papers to test dedup)
+            SAMPLE_ARXIV_XML,
+        ]
+        results = asyncio.get_event_loop().run_until_complete(search_arxiv("test"))
+        # Should be deduped to 2, not 4
+        assert len(results) == 2
+        assert mock_get.call_count == 2
+
+    @patch("papertales.paper_search._rate_limited_arxiv_get")
+    def test_title_results_come_first(self, mock_get):
+        """Title-matched papers should appear before all-field matches."""
+        ti_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/1111.11111v1</id>
+    <title>Title Match Paper</title>
+    <summary>Found via title.</summary>
+    <author><name>Author A</name></author>
+  </entry>
+</feed>"""
+        all_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2222.22222v1</id>
+    <title>All Fields Paper</title>
+    <summary>Found via all fields.</summary>
+    <author><name>Author B</name></author>
+  </entry>
+</feed>"""
+        mock_get.side_effect = [ti_xml, all_xml]
+        results = asyncio.get_event_loop().run_until_complete(search_arxiv("test"))
+        assert len(results) == 2
+        assert results[0].title == "Title Match Paper"
+        assert results[1].title == "All Fields Paper"
 
 
 # ---------------------------------------------------------------------------
@@ -160,14 +200,9 @@ class TestSelectBestResult:
         )
         assert result == single
 
-    @patch("papertales.paper_search.genai.Client")
-    def test_selects_llm_choice(self, mock_client_cls):
-        mock_client = mock_client_cls.return_value
-        mock_response = MagicMock()
-        mock_response.text = "2"
-        mock_client.models.generate_content.return_value = mock_response
-        import papertales.paper_search as ps
-        ps._genai_client = None
+    @patch("papertales.paper_search._call_llm")
+    def test_selects_llm_choice(self, mock_call_llm):
+        mock_call_llm.return_value = "2"
 
         results = [
             ArxivResult(title="Paper A", arxiv_id="001", url="url1", summary="A", authors=[]),
@@ -177,14 +212,25 @@ class TestSelectBestResult:
             select_best_result("test", results)
         )
         assert best == results[1]
-        ps._genai_client = None
 
-    @patch("papertales.paper_search.genai.Client")
-    def test_falls_back_to_first_on_llm_error(self, mock_client_cls):
-        mock_client = mock_client_cls.return_value
-        mock_client.models.generate_content.side_effect = Exception("fail")
-        import papertales.paper_search as ps
-        ps._genai_client = None
+    @patch("papertales.paper_search._call_llm")
+    def test_prefers_foundational_papers_in_prompt(self, mock_call_llm):
+        """Selection prompt should guide toward foundational/explanatory papers."""
+        mock_call_llm.return_value = "1"
+
+        results = [
+            ArxivResult(title="Paper A", arxiv_id="001", url="url1", summary="A", authors=[]),
+            ArxivResult(title="Paper B", arxiv_id="002", url="url2", summary="B", authors=[]),
+        ]
+        asyncio.get_event_loop().run_until_complete(
+            select_best_result("what is X", results)
+        )
+        prompt = mock_call_llm.call_args[0][0]
+        assert "INTRODUCE" in prompt or "DEFINE" in prompt or "EXPLAIN" in prompt
+
+    @patch("papertales.paper_search._call_llm")
+    def test_falls_back_to_first_on_llm_error(self, mock_call_llm):
+        mock_call_llm.side_effect = Exception("fail")
 
         results = [
             ArxivResult(title="Paper A", arxiv_id="001", url="url1", summary="A", authors=[]),
@@ -194,7 +240,6 @@ class TestSelectBestResult:
             select_best_result("test", results)
         )
         assert best == results[0]
-        ps._genai_client = None
 
 
 # ---------------------------------------------------------------------------

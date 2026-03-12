@@ -55,6 +55,14 @@ app = get_fast_api_app(
     allow_origins=CORS_ORIGINS.split(","),
 )
 
+# Eagerly init genai client to avoid cold-start on first query
+from papertales.paper_search import init_genai_client
+
+try:
+    init_genai_client()
+except Exception:
+    logger.warning("Failed to eagerly init genai client; will retry on first request")
+
 # Lazy-initialized singletons
 _runner: InMemoryRunner | None = None
 APP_NAME = "papertales"

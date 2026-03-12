@@ -1,7 +1,7 @@
 [project]
 name = "papertales-backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI agent pipeline that transforms research papers into illustrated stories for young readers"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
