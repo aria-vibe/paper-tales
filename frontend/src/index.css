@@ -1387,8 +1387,12 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   margin-bottom: 12px;
+}
+
+.story-title-row h1 {
+  min-width: 0;
 }
 
 .title-audio-inline {
@@ -2126,13 +2130,11 @@ a:hover {
   }
 
   .story-title-row {
-    flex-direction: column;
-    align-items: flex-start;
     gap: 8px;
   }
 
   .title-audio-inline {
-    width: 180px;
+    width: 160px;
   }
 
   .book-arrow {

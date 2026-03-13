@@ -10,23 +10,23 @@ interface StoryViewerProps {
   onRegenerate?: () => void;
 }
 
-function getDifficultyFromAccuracy(
+function getAccuracyBadge(
   rating: number | string | undefined
 ): { label: string; className: string } {
   if (rating === undefined)
-    return { label: "Unknown", className: "difficulty-unknown" };
+    return { label: "Accuracy: N/A", className: "difficulty-unknown" };
   if (typeof rating === "string") {
     const r = rating.toLowerCase();
     if (r === "excellent")
-      return { label: "Easy Read", className: "difficulty-easy" };
+      return { label: "Highly Accurate", className: "difficulty-easy" };
     if (r === "good")
-      return { label: "Moderate", className: "difficulty-moderate" };
-    return { label: "Challenging", className: "difficulty-hard" };
+      return { label: "Mostly Accurate", className: "difficulty-moderate" };
+    return { label: "Loosely Adapted", className: "difficulty-hard" };
   }
-  if (rating >= 0.85) return { label: "Easy Read", className: "difficulty-easy" };
+  if (rating >= 0.85) return { label: "Highly Accurate", className: "difficulty-easy" };
   if (rating >= 0.65)
-    return { label: "Moderate", className: "difficulty-moderate" };
-  return { label: "Challenging", className: "difficulty-hard" };
+    return { label: "Mostly Accurate", className: "difficulty-moderate" };
+  return { label: "Loosely Adapted", className: "difficulty-hard" };
 }
 
 function GlossaryText({
@@ -227,7 +227,7 @@ export function StoryViewer({ story, getToken, isAdmin, onRegenerate }: StoryVie
   const touchDeltaX = useRef(0);
   const isDragging = useRef(false);
   const glossary = story.glossary ?? {};
-  const difficulty = getDifficultyFromAccuracy(story.factCheck?.accuracy_rating);
+  const accuracy = getAccuracyBadge(story.factCheck?.accuracy_rating);
 
   const allScenes = [
     ...story.scenes,
@@ -320,8 +320,8 @@ export function StoryViewer({ story, getToken, isAdmin, onRegenerate }: StoryVie
               {story.fieldOfStudy}
             </span>
           )}
-          <span className={`story-meta-tag ${difficulty.className}`}>
-            {difficulty.label}
+          <span className={`story-meta-tag ${accuracy.className}`}>
+            {accuracy.label}
           </span>
         </div>
         {story.paperTitle && (
