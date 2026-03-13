@@ -268,7 +268,7 @@ Cached results do not count against the user's daily quota.
 **1. Clone and install dependencies:**
 
 ```bash
-git clone https://github.com/<your-org>/paper-tales.git
+git clone https://github.com/aria-vibe/paper-tales.git
 cd paper-tales
 
 # Backend
@@ -414,7 +414,7 @@ Firebase Hosting is configured to rewrite `/api/**` requests to the Cloud Run ba
 
 ## Testing
 
-The backend has 300+ tests covering agents, tools, API endpoints, and services.
+The backend has 315+ tests covering agents, tools, API endpoints, and services.
 
 ```bash
 cd backend
@@ -548,7 +548,7 @@ paper-tales/
 │   │   ├── log_context.py    # Structured logging with session/job correlation
 │   │   ├── paper_search.py   # Natural language → arXiv search
 │   │   └── url_validation.py # Archive URL whitelist
-│   ├── tests/                # 300+ pytest tests
+│   ├── tests/                # 315+ pytest tests
 │   ├── main.py               # FastAPI application
 │   ├── demo_pipeline.py      # CLI for testing the pipeline
 │   ├── Dockerfile            # Cloud Run container
