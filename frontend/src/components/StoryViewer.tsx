@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, type CSSProperties } from "react";
 import type { Story, StoryScene } from "../types";
 import { useAuthMedia } from "../hooks/useAuthMedia";
 import { VoteButtons } from "./VoteButtons";
@@ -27,6 +27,52 @@ function getAccuracyBadge(
   if (rating >= 0.65)
     return { label: "Mostly Accurate", className: "difficulty-moderate" };
   return { label: "Loosely Adapted", className: "difficulty-hard" };
+}
+
+function GlossaryWord({ text, definition }: { text: string; definition: string }) {
+  const spanRef = useRef<HTMLSpanElement>(null);
+  const [style, setStyle] = useState<CSSProperties | null>(null);
+
+  const show = useCallback(() => {
+    const el = spanRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const tipWidth = Math.min(260, window.innerWidth - 24);
+    // center on the word, then clamp to viewport edges
+    let left = rect.left + rect.width / 2 - tipWidth / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tipWidth - 8));
+    // prefer above; if not enough room, show below
+    const above = rect.top - 8;
+    const below = rect.bottom + 8;
+    const placeBelow = above < 60;
+    setStyle({
+      position: "fixed",
+      top: placeBelow ? below : undefined,
+      bottom: placeBelow ? undefined : window.innerHeight - above,
+      left,
+      width: tipWidth,
+    });
+  }, []);
+
+  const hide = useCallback(() => setStyle(null), []);
+
+  return (
+    <span
+      ref={spanRef}
+      className="glossary-word"
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onTouchStart={show}
+      onTouchEnd={hide}
+    >
+      {text}
+      {style && (
+        <span className="glossary-tip" style={style}>
+          {definition}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function GlossaryText({
@@ -63,9 +109,7 @@ function GlossaryText({
     <>
       {parts.map((p, i) =>
         p.term ? (
-          <span key={i} className="glossary-word" data-tooltip={glossary[p.term]}>
-            {p.text}
-          </span>
+          <GlossaryWord key={i} text={p.text} definition={glossary[p.term]} />
         ) : (
           <span key={i}>{p.text}</span>
         )
