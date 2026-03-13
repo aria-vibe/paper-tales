@@ -1385,20 +1385,15 @@ a:hover {
 /* --- Title Row --- */
 .story-title-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: nowrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
   margin-bottom: 12px;
-}
-
-.story-title-row h1 {
-  min-width: 0;
 }
 
 .title-audio-inline {
   height: 32px;
   width: 260px;
-  flex-shrink: 0;
   border-radius: 16px;
 }
 
@@ -2121,12 +2116,8 @@ a:hover {
     font-size: 1.4rem;
   }
 
-  .story-title-row {
-    gap: 8px;
-  }
-
   .title-audio-inline {
-    width: 160px;
+    width: 100%;
   }
 
   .book-arrow {
