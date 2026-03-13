@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import type { Story, StoryScene } from "../types";
 import { useAuthMedia } from "../hooks/useAuthMedia";
 import { VoteButtons } from "./VoteButtons";
@@ -38,10 +39,8 @@ function GlossaryWord({ text, definition }: { text: string; definition: string }
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const tipWidth = Math.min(260, window.innerWidth - 24);
-    // center on the word, then clamp to viewport edges
     let left = rect.left + rect.width / 2 - tipWidth / 2;
     left = Math.max(8, Math.min(left, window.innerWidth - tipWidth - 8));
-    // prefer above; if not enough room, show below
     const above = rect.top - 8;
     const below = rect.bottom + 8;
     const placeBelow = above < 60;
@@ -66,10 +65,11 @@ function GlossaryWord({ text, definition }: { text: string; definition: string }
       onTouchEnd={hide}
     >
       {text}
-      {style && (
+      {style && createPortal(
         <span className="glossary-tip" style={style}>
           {definition}
-        </span>
+        </span>,
+        document.body
       )}
     </span>
   );
